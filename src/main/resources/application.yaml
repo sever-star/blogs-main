@@ -1,0 +1,5 @@
+# ==================== Spring Boot 核心配置 ====================
+spring:
+  profiles:
+    # 激活 dev（开发环境）配置，对应 application-dev.yaml
+    active: dev
