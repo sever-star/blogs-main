@@ -7,6 +7,7 @@ import com.syt.blog.repository.BlogTagRepository;
 import com.syt.blog.service.BlogTagService;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -19,33 +20,46 @@ public class BlogTagServiceImpl implements BlogTagService {
     private final BlogTagRepository blogTagRepository;
     private final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
+    /**
+     * 保存标签
+     */
     @Override
+
     public BlogTag saveBlogTag(BlogTag blogTag) {
         boolean exists = blogTagRepository.existsByName(blogTag.getName());
         if (exists) {
-            return null;
+            throw new RuntimeException("标签名称重复");
         }
         return blogTagRepository.save(blogTag);
     }
 
+    /**
+     * 获取所有标签
+     */
     @Override
     public List<BlogTag> getAllBlogTags() {
         return blogTagRepository.findAll();
     }
+    /**
+     * 根据id获取标签
+     */
 
     @Override
     public BlogTag getById(Integer id) {
-        BlogTag blogTag = blogTagRepository.findById(id).orElse(null);
+
+        BlogTag blogTag = blogTagRepository.findById(id).orElseThrow(() -> new RuntimeException("标签不存在"));
         return blogTag;
     }
-
+    /**
+     * 更新标签
+     */
     @Override
     @Transactional
     public TagResponse updateBlogTag(Integer id, TagUpdateDTO tagUpdateDTO) {
         BlogTag blogTag = blogTagRepository.findById(id).orElseThrow(() -> new RuntimeException("标签不存在"));
         boolean exists = blogTagRepository.existsByNameAndIdNot(tagUpdateDTO.getName().trim(), id);
         if (exists)
-            throw new RuntimeException("标签名称重复");
+            throw new DataIntegrityViolationException("标签名称重复");
         blogTag.setName(tagUpdateDTO.getName().trim());
         TagResponse tagResponse = new TagResponse();
         tagResponse.setId(blogTag.getId());

@@ -94,7 +94,7 @@ public class BlogUserController {
             if (ip == null || ip.isEmpty()) {
                 ip = request.getRemoteAddr();
             }
-            refreshTokenService.saveRefreshToken(Long.valueOf(userId), newRefreshToken, null, userAgent, ip);
+            refreshTokenService.saveRefreshToken(userId, newRefreshToken, null, userAgent, ip);
 
             setRefreshTokenCookie(response, newRefreshToken, refreshExpiration);
 

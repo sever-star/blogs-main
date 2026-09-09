@@ -10,6 +10,7 @@ public interface BlogTagService {
     BlogTag saveBlogTag(BlogTag blogTag);
 
     List<BlogTag> getAllBlogTags();
+
     BlogTag getById(Integer id);
 
     TagResponse updateBlogTag(Integer id, TagUpdateDTO tagUpdateDTO );

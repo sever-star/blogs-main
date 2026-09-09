@@ -22,6 +22,13 @@ public class BlogUserServiceImpl implements BlogUserService {
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
 
+    /**
+     * 用户登录
+     *
+     * @param loginDTO 登录参数
+     * @param request HTTP 请求
+     * @return 登录结果
+     */
     @Override
     public UserVO login(LoginDTO loginDTO, HttpServletRequest request) {
         BlogUser user = blogUserRepository.findByUsername(loginDTO.getUsername());
@@ -34,7 +41,7 @@ public class BlogUserServiceImpl implements BlogUserService {
         String userAgent = request.getHeader("User-Agent");
         String ip = getClientIp(request);
         refreshTokenService.saveRefreshToken(
-                Long.valueOf(user.getId()), refreshToken, null, userAgent, ip
+                user.getId(), refreshToken, null, userAgent, ip
         );
 
         UserVO userVO = toUserVO(user);
@@ -62,11 +69,23 @@ public class BlogUserServiceImpl implements BlogUserService {
         return ip;
     }
 
+    /**
+     * 获取用户信息
+     *
+     * @param id 用户ID
+     * @return 用户信息
+     */
     @Override
     public UserVO getUser(Integer id) {
         return toUserVO(blogUserRepository.findById(id).orElse(null));
     }
 
+    /**
+     * 用户注册
+     *
+     * @param blogUser 用户信息
+     * @return 注册结果
+     */
     @Override
     public UserVO register(BlogUser blogUser) {
         String user = blogUser.getUsername();
@@ -79,6 +98,13 @@ public class BlogUserServiceImpl implements BlogUserService {
         return toUserVO(blogUserRepository.save(blogUser));
     }
 
+    /**
+     * 更新用户信息
+     *
+     * @param token    访问令牌
+     * @param blogUser 用户信息
+     * @return 更新后的用户信息
+     */
     @Override
     public BlogUser update(String token, BlogUser blogUser) {
         String username=jwtUtils.getUsernameFromToken(token);
@@ -97,6 +123,12 @@ public class BlogUserServiceImpl implements BlogUserService {
         return null;
     }
 
+    /**
+     * 将 BlogUser 转换为 UserVO
+     *
+     * @param user BlogUser
+     * @return UserVO
+     */
 
 
     private UserVO toUserVO(BlogUser user) {

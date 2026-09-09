@@ -14,6 +14,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class Result<T> {
 
+
     /** 状态码：200 表示成功，其他表示异常 */
     private int code;
 

@@ -19,7 +19,7 @@ public class RefreshTokenServiceImpl implements RefreshTokenService {
     private final JwtUtils jwtUtils;
 
     @Override
-    public RefreshToken saveRefreshToken(Long userId, String token, String deviceId, String userAgent, String ip) {
+    public RefreshToken saveRefreshToken(Integer userId, String token, String deviceId, String userAgent, String ip) {
         RefreshToken refreshToken = RefreshToken.builder()
                 .userId(userId)
                 .token(token)
