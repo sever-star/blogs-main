@@ -1,6 +1,7 @@
 package com.syt.blog.controller;
 
 
+import com.syt.blog.Vo.LoginResponse;
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
 import com.syt.blog.dto.LoginDTO;
@@ -13,6 +14,7 @@ import com.syt.blog.Vo.UserVO;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
@@ -30,16 +32,11 @@ public class BlogUserController {
     private long refreshExpiration;
 
     @PostMapping("/login")
-    public Result<UserVO> login(@RequestBody LoginDTO loginDTO,
-                                HttpServletRequest request,
-                                HttpServletResponse response) {
-        UserVO userVO = blogUserService.login(loginDTO, request);
-        if (userVO != null) {
-            setRefreshTokenCookie(response, userVO.getRefreshToken(), refreshExpiration);
-            userVO.setRefreshToken(null);
-            return Result.success(userVO);
-        }
-        return Result.error(ErrorCode.AUTH_FAILED, "用户名或密码错误");
+    public Result<LoginResponse> login(@RequestBody @Valid LoginDTO loginDTO,
+                                       HttpServletRequest request,
+                                       HttpServletResponse response) {
+        LoginResponse loginResponse=blogUserService.login(loginDTO, request,response);
+        return Result.success(loginResponse);
     }
 
     @GetMapping("/me")

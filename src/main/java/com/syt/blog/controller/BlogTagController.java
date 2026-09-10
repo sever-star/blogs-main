@@ -2,7 +2,6 @@ package com.syt.blog.controller;
 
 
 import com.syt.blog.Vo.TagResponse;
-import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
 import com.syt.blog.dto.TagUpdateDTO;
 import com.syt.blog.entity.BlogTag;
@@ -44,5 +43,11 @@ public class BlogTagController {
         TagResponse tagResponse;
         tagResponse = blogTagService.updateBlogTag(id, tagUpdateDTO);
         return Result.success(tagResponse);
+    }
+
+    @DeleteMapping("/tags/{id}")
+    public Result deleteBlogTag(@PathVariable Integer id) {
+        blogTagService.deleteBlogTag(id);
+        return Result.success();
     }
 }

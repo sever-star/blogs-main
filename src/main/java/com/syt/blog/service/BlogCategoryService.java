@@ -1,46 +1,75 @@
 package com.syt.blog.service;
 
 import com.syt.blog.entity.BlogCategory;
+import com.syt.blog.repository.BlogCategoryRepository;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
 /**
- * 分类业务逻辑接口
+ * 分类业务逻辑实现类
  */
-public interface BlogCategoryService {
+@Service
+public class BlogCategoryService {
 
-    /**
-     * 新增分类
-     */
-    BlogCategory createCategory(BlogCategory category);
+    private final BlogCategoryRepository blogCategoryRepository;
 
-    /**
-     * 查询所有分类
-     */
-    List<BlogCategory> getAllCategories();
+    public BlogCategoryService(BlogCategoryRepository blogCategoryRepository) {
+        this.blogCategoryRepository = blogCategoryRepository;
+    }
 
-    /**
-     * 查询所有顶级分类
-     */
-    List<BlogCategory> getTopCategories();
+    
+    @Transactional
+    public BlogCategory createCategory(BlogCategory category) {
+        if (blogCategoryRepository.existsByName(category.getName())) {
+            throw new RuntimeException("分类名称已存在: " + category.getName());
+        }
+        return blogCategoryRepository.save(category);
+    }
 
-    /**
-     * 根据父分类 ID 查询子分类
-     */
-    List<BlogCategory> getSubCategories(Long parentId);
+    
+    public List<BlogCategory> getAllCategories() {
+        return blogCategoryRepository.findAll();
+    }
 
-    /**
-     * 根据 ID 查询分类
-     */
-    BlogCategory getCategoryById(Long id);
+    
+    public List<BlogCategory> getTopCategories() {
+        return blogCategoryRepository.findByParentId(0L);
+    }
 
-    /**
-     * 更新分类
-     */
-    BlogCategory updateCategory(Long id, BlogCategory category);
+    
+    public List<BlogCategory> getSubCategories(Long parentId) {
+        return blogCategoryRepository.findByParentId(parentId);
+    }
 
-    /**
-     * 删除分类
-     */
-    void deleteCategory(Long id);
+    
+    public BlogCategory getCategoryById(Long id) {
+        return blogCategoryRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("分类不存在，ID: " + id));
+    }
+
+    
+    @Transactional
+    public BlogCategory updateCategory(Long id, BlogCategory category) {
+        BlogCategory existing = getCategoryById(id);
+        if (category.getName() != null && !category.getName().equals(existing.getName())) {
+            if (blogCategoryRepository.existsByName(category.getName())) {
+                throw new RuntimeException("分类名称已存在: " + category.getName());
+            }
+            existing.setName(category.getName());
+        }
+        if (category.getParentId() != null) existing.setParentId(category.getParentId());
+        if (category.getSortOrder() != null) existing.setSortOrder(category.getSortOrder());
+        return blogCategoryRepository.save(existing);
+    }
+
+    
+    @Transactional
+    public void deleteCategory(Long id) {
+        if (!blogCategoryRepository.existsById(id)) {
+            throw new RuntimeException("分类不存在，ID: " + id);
+        }
+        blogCategoryRepository.deleteById(id);
+    }
 }

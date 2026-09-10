@@ -22,8 +22,9 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusiness(BusinessException e){
-        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Result.error(e.getCode(), e.getMessage()));
+        return ResponseEntity.status(e.getCode()).body(Result.error(e.getCode(), e.getMessage()));
     }
+    /**Controller层校验失败 → 400 */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<Result<Void>> handleValidation(MethodArgumentNotValidException e){
         // 获取校验失败的字段和错误信息

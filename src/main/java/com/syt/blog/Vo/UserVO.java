@@ -29,9 +29,14 @@ public class UserVO {
     /** 头像 URL */
     private String avatar;
 
-    /** JWT 令牌 */
-    private String accessToken;
+    /** 简介 */
+    private String bio;
+    /** 个人网站 */
+    private String website;
 
-    /** 刷新令牌 */
-    private String refreshToken;
+    /** github地址 */
+    private String github;
+
+    /**微博地址*/
+    private String weibo;
 }
