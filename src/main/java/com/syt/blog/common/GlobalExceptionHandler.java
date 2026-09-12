@@ -22,7 +22,18 @@ public class GlobalExceptionHandler {
     }
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<Result<Void>> handleBusiness(BusinessException e){
-        return ResponseEntity.status(e.getCode()).body(Result.error(e.getCode(), e.getMessage()));
+        // 业务码不一定是合法 HTTP 状态码（如 AUTH_FAILED=401004），取前三位作为 HTTP 状态，
+        // 完整业务码仍保留在响应体 Result.code 中，供前端精确区分错误。
+        return ResponseEntity.status(toHttpStatus(e.getCode()))
+                .body(Result.error(e.getCode(), e.getMessage()));
+    }
+
+    /**
+     * 将业务码映射为合法 HTTP 状态码。
+     * <p>标准 HTTP 状态（100-599）原样使用；否则取业务码前三位（401004 → 401）。
+     */
+    private int toHttpStatus(int code) {
+        return (code >= 100 && code <= 599) ? code : code / 1000;
     }
     /**Controller层校验失败 → 400 */
     @ExceptionHandler(MethodArgumentNotValidException.class)

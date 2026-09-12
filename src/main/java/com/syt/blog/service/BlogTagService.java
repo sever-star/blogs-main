@@ -2,13 +2,18 @@ package com.syt.blog.service;
 
 import com.syt.blog.Vo.TagResponse;
 import com.syt.blog.common.DuplicateNameException;
+import com.syt.blog.common.PageResult;
 import com.syt.blog.common.ResourceNotFoundException;
 import com.syt.blog.dto.TagUpdateDTO;
 import com.syt.blog.entity.BlogTag;
 import com.syt.blog.repository.BlogTagRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+
+import org.springframework.data.domain.Pageable;
 
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -37,7 +42,22 @@ public class BlogTagService {
      * 获取所有标签
      */
     
-    public List<BlogTag> getAllBlogTags() {
+    public Object getAllBlogTags(String keyword, Integer page, Integer size) {
+        if (page != null || size != null){
+            Pageable pageable = PageRequest.of(page-1, size);
+            Page<BlogTag> pageResult;
+            if (keyword != null) {
+                pageResult =blogTagRepository.findByNameContaining(keyword, pageable);
+            }else{
+                pageResult =blogTagRepository.findAll(pageable);
+            }
+            return new PageResult(pageResult.getContent(),
+                    pageResult.getTotalElements(),
+                    pageResult.getNumber(),
+                    pageResult.getSize(),
+                    pageResult.getTotalPages());
+        }
+
         return blogTagRepository.findAll();
     }
     /**

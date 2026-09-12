@@ -2,7 +2,10 @@ package com.syt.blog.service;
 
 import com.syt.blog.Vo.LoginResponse;
 import com.syt.blog.common.BusinessException;
+import com.syt.blog.common.ErrorCode;
 import com.syt.blog.dto.LoginDTO;
+import com.syt.blog.dto.RegisterDTO;
+import com.syt.blog.dto.UserDTO;
 import com.syt.blog.entity.BlogUser;
 import com.syt.blog.repository.BlogUserRepository;
 import com.syt.blog.util.JwtUtils;
@@ -10,6 +13,7 @@ import com.syt.blog.Vo.UserVO;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,7 +43,7 @@ public class BlogUserService {
         BlogUser user = blogUserRepository.findByUsername(loginDTO.getUsername());
 
         if (user == null || !user.getPassword().equals(loginDTO.getPassword())) {
-           throw new BusinessException(401, "用户名或密码错误");
+            throw new BusinessException(401, "用户名或密码错误");
         }
         String accessToken = jwtUtils.generateToken(user.getId(), user.getUsername());
         String refreshToken = jwtUtils.generateRefreshToken(user.getId(), user.getUsername());
@@ -79,54 +83,80 @@ public class BlogUserService {
     /**
      * 获取用户信息
      *
-     * @param id 用户ID
+      * @param authorization 访问令牌
      * @return 用户信息
      */
-    public UserVO getUser(Integer id) {
-        return toUserVO(blogUserRepository.findById(id).orElse(null));
+    public UserVO getUser(String authorization) {
+        String token = authorization.replace("Bearer ", "");
+        Integer userId = jwtUtils.getUserIdFromToken(token);
+        return toUserVO(blogUserRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.AUTH_FAILED, "用户不存在")));
     }
 
     /**
      * 用户注册
      *
-     * @param blogUser 用户信息
+     * @param registerDTO 注册参数
      * @return 注册结果
      */
-    public UserVO register(BlogUser blogUser) {
-        String user = blogUser.getUsername();
-        log.info("Registering user: " + user);
-        BlogUser existingUser = blogUserRepository.findByUsername(user);
+    @Transactional
+    public LoginResponse register(RegisterDTO registerDTO) {
+        String username = registerDTO.getUsername();
+        log.info("Registering user: " + username);
+
+        BlogUser existingUser = blogUserRepository.findByUsername(username);
         log.info("Existing user: " + existingUser);
+
         if (existingUser != null) {
-            return null;
+            throw new BusinessException(ErrorCode.AUTH_FAILED, "用户已存在");
         }
-        return toUserVO(blogUserRepository.save(blogUser));
+
+        BlogUser newUser = new BlogUser();
+        newUser.setUsername(username);
+        newUser.setPassword(registerDTO.getPassword());
+        newUser.setEmail(registerDTO.getEmail());
+        blogUserRepository.save(newUser);
+
+        log.info("userId: " + newUser.getId());
+        String accessToken = jwtUtils.generateToken(newUser.getId(), newUser.getUsername());
+        LoginResponse loginResponse = new LoginResponse();
+        loginResponse.setAccessToken(accessToken);
+        loginResponse.setUser(toUserVO(newUser));
+        return loginResponse;
     }
 
     /**
      * 更新用户信息
      *
-     * @param token    访问令牌
-     * @param blogUser 用户信息
+     * @param authorization    访问令牌
+     * @param userDTO 用户信息
      * @return 更新后的用户信息
      */
-    public BlogUser update(String token, BlogUser blogUser) {
+    @Transactional
+    public UserVO update(String authorization, UserDTO userDTO) {
+        String token = authorization.replace("Bearer ", "");
         String username=jwtUtils.getUsernameFromToken(token);
         BlogUser user = blogUserRepository.findByUsername(username);
-        user.setNickname(blogUser.getNickname());
-        user.setAvatar(blogUser.getAvatar());
-        user.setBio(blogUser.getBio());
-        user.setWebsite(blogUser.getWebsite());
-        user.setGithub(blogUser.getGithub());
-        user.setWeibo(blogUser.getWeibo());
-
-        if (user != null){
-            blogUserRepository.save(user);
-            return user;
+        if (user == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED,"更新失败");
         }
-        return null;
-    }
+        user.setNickname(userDTO.getNickname());
+        user.setAvatar(userDTO.getAvatar());
+        user.setBio(userDTO.getBio());
+        user.setWebsite(userDTO.getWebsite());
+        user.setGithub(userDTO.getGithub());
+        user.setWeibo(userDTO.getWeibo());
+        blogUserRepository.save(user);
+        UserVO userVO = toUserVO(user);
 
+        return userVO;
+
+    }
+    public void logout(String refreshToken, HttpServletResponse response) {
+        if (refreshToken != null && !refreshToken.isEmpty()) {
+            refreshTokenService.revokeRefreshToken(refreshToken);
+        }
+        clearRefreshTokenCookie(response);
+    }
     /**
      * 清除刷新令牌 cookie
      *
@@ -179,4 +209,6 @@ public class BlogUserService {
         userVO.setWeibo(user.getWeibo());
         return userVO;
     }
+
+
 }

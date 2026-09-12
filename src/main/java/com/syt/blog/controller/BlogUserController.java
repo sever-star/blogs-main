@@ -5,6 +5,8 @@ import com.syt.blog.Vo.LoginResponse;
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
 import com.syt.blog.dto.LoginDTO;
+import com.syt.blog.dto.RegisterDTO;
+import com.syt.blog.dto.UserDTO;
 import com.syt.blog.entity.BlogUser;
 import com.syt.blog.entity.RefreshToken;
 import com.syt.blog.service.BlogUserService;
@@ -41,31 +43,21 @@ public class BlogUserController {
 
     @GetMapping("/me")
     public Result<UserVO> me(@RequestHeader("Authorization") String authorization) {
-        String token = authorization.replace("Bearer ", "");
-        Integer userId = jwtUtils.getUserIdFromToken(token);
-        UserVO userVO = blogUserService.getUser(userId);
-        if (userVO != null) {
-            return Result.success(userVO);
-        }
-        return Result.error(ErrorCode.AUTH_FAILED, "用户不存在");
+        UserVO userVO = blogUserService.getUser(authorization);
+        return Result.success(userVO);
     }
 
     @PutMapping("/me")
-    public Result<BlogUser> update(@RequestHeader("Authorization") String authorization,
-                                   @RequestBody BlogUser blogUser) {
-        String token = authorization.replace("Bearer ", "");
-        BlogUser updatedUser = blogUserService.update(token, blogUser);
-        if (updatedUser != null)
-            return Result.success(updatedUser);
-        return Result.error(ErrorCode.AUTH_FAILED,"更新失败");
+        public Result<UserVO> update(@RequestHeader("Authorization") String authorization,
+                                   @RequestBody UserDTO userDTO) {
+        UserVO updatedUser = blogUserService.update(authorization, userDTO);
+        return Result.success(updatedUser);
     }
     @PostMapping("/register")
-    public Result<UserVO> register(@RequestBody BlogUser blogUser) {
-        UserVO userVO = blogUserService.register(blogUser);
-        if (userVO != null) {
-            return Result.success(userVO);
-        }
-        return Result.error(ErrorCode.AUTH_FAILED, "注册失败");
+    public Result<LoginResponse> register(@RequestBody @Valid RegisterDTO registerDTO) {
+        LoginResponse loginResponse = blogUserService.register(registerDTO);
+        return Result.success(loginResponse);
+
     }
 
     @PostMapping("/refresh")
@@ -105,10 +97,7 @@ public class BlogUserController {
     @PostMapping("/logout")
     public Result<?> logout(@CookieValue(name = "refreshToken", required = false) String refreshToken,
                             HttpServletResponse response) {
-        if (refreshToken != null && !refreshToken.isEmpty()) {
-            refreshTokenService.revokeRefreshToken(refreshToken);
-        }
-        clearRefreshTokenCookie(response);
+        blogUserService.logout(refreshToken, response);
         return Result.success("退出登录成功");
     }
 

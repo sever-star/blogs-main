@@ -10,7 +10,6 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -26,9 +25,11 @@ public class BlogTagController {
     }
 
     @GetMapping
-    public Result<List<BlogTag>> getAllBlogTags() {
-        List<BlogTag> blogTags = blogTagService.getAllBlogTags();
-        return Result.success(blogTags);
+    public Result<Object> getAllBlogTags(@RequestParam(required = false) String keyword,
+                                          @RequestParam(required = false) Integer page,
+                                          @RequestParam(required = false) Integer pageSize) {
+        Object data = blogTagService.getAllBlogTags(keyword, page, pageSize);
+        return Result.success(data);
     }
 
     @GetMapping("/{id}")
