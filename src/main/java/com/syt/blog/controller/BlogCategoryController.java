@@ -1,8 +1,11 @@
 package com.syt.blog.controller;
 
+import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
+import com.syt.blog.dto.CategoryDTO;
 import com.syt.blog.entity.BlogCategory;
 import com.syt.blog.service.BlogCategoryService;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -28,20 +31,32 @@ public class BlogCategoryController {
      * 创建分类
      */
     @PostMapping
-    public Result<BlogCategory> createCategory(@RequestBody BlogCategory category) {
-        BlogCategory saved = blogCategoryService.createCategory(category);
+    public Result<BlogCategory> createCategory(@RequestBody @Valid CategoryDTO categoryDTO) {
+        BlogCategory saved = blogCategoryService.createCategory(categoryDTO);
         return Result.success(saved);
     }
 
     // ==================== 查询分类 ====================
 
     /**
-     * 查询所有分类
+     * 查询全量分类（供选择器使用，无分页）。
+     * 支持可选 keyword 名称模糊过滤。
      */
     @GetMapping
-    public Result<List<BlogCategory>> getAllCategories() {
-        List<BlogCategory> categories = blogCategoryService.getAllCategories();
+    public Result<List<BlogCategory>> getAllCategories(@RequestParam(required = false) String keyword) {
+        List<BlogCategory> categories = blogCategoryService.getAllCategories(keyword);
         return Result.success(categories);
+    }
+
+    /**
+     * 分页查询分类（供管理表格使用，支持 keyword 模糊搜索）。
+     */
+    @GetMapping("/page")
+    public Result<PageResult> getCategoriesPaged(@RequestParam(required = false) String keyword,
+                                                @RequestParam(defaultValue = "1") Integer page,
+                                                @RequestParam(defaultValue = "10") Integer pageSize) {
+        PageResult pageResult = blogCategoryService.getCategoriesPaged(keyword, page, pageSize);
+        return Result.success(pageResult);
     }
 
     /**
@@ -66,7 +81,7 @@ public class BlogCategoryController {
      * 根据 ID 查询分类
      */
     @GetMapping("/{id}")
-    public Result<BlogCategory> getCategory(@PathVariable Long id) {
+    public Result<BlogCategory> getCategory(@PathVariable Integer id) {
         BlogCategory category = blogCategoryService.getCategoryById(id);
         return Result.success(category);
     }
@@ -77,8 +92,8 @@ public class BlogCategoryController {
      * 更新分类
      */
     @PutMapping("/{id}")
-    public Result<BlogCategory> updateCategory(@PathVariable Long id, @RequestBody BlogCategory category) {
-        BlogCategory updated = blogCategoryService.updateCategory(id, category);
+    public Result<BlogCategory> updateCategory(@PathVariable Integer id, @RequestBody @Valid CategoryDTO categoryDTO) {
+        BlogCategory updated = blogCategoryService.updateCategory(id, categoryDTO);
         return Result.success(updated);
     }
 
@@ -88,7 +103,7 @@ public class BlogCategoryController {
      * 删除分类
      */
     @DeleteMapping("/{id}")
-    public Result<Void> deleteCategory(@PathVariable Long id) {
+    public Result<Void> deleteCategory(@PathVariable Integer id) {
         blogCategoryService.deleteCategory(id);
         return Result.success();
     }

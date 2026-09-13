@@ -4,6 +4,8 @@ import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 /**
  * 用户信息响应 VO（View Object）
  * <p>
@@ -39,4 +41,14 @@ public class UserVO {
 
     /**微博地址*/
     private String weibo;
+
+    /**账户状态*/
+    private Integer status;
+
+    /** 最后登录时间 */
+    private LocalDateTime lastLoginAt;
+    /** 创建时间 */
+    private LocalDateTime createdAt;
+    /** 更新时间 */
+    private LocalDateTime updatedAt;
 }

@@ -2,6 +2,7 @@ package com.syt.blog.controller;
 
 
 import com.syt.blog.Vo.TagResponse;
+import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
 import com.syt.blog.dto.TagUpdateDTO;
 import com.syt.blog.entity.BlogTag;
@@ -9,6 +10,8 @@ import com.syt.blog.service.BlogTagService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 
 @RestController
@@ -18,26 +21,48 @@ public class BlogTagController {
 
     private final BlogTagService blogTagService;
 
+    /**
+     * 创建标签
+     */
     @PostMapping
-    public Result<BlogTag> createBlogTag(@Valid @RequestBody BlogTag blogTag) {
-        BlogTag Tag = blogTagService.saveBlogTag(blogTag);
-        return Result.success(Tag);
+    public Result<TagResponse> createBlogTag(@Valid @RequestBody TagUpdateDTO tagUpdateDTO) {
+        TagResponse tagResponse = blogTagService.saveBlogTag(tagUpdateDTO);
+        return Result.success(tagResponse);
     }
 
+    /**
+     * 获取全量标签（供选择器使用，无分页）。
+     * 支持可选 keyword 名称模糊过滤。
+     */
     @GetMapping
-    public Result<Object> getAllBlogTags(@RequestParam(required = false) String keyword,
-                                          @RequestParam(required = false) Integer page,
-                                          @RequestParam(required = false) Integer pageSize) {
-        Object data = blogTagService.getAllBlogTags(keyword, page, pageSize);
-        return Result.success(data);
+    public Result<List<BlogTag>> getAllBlogTags(@RequestParam(required = false) String keyword) {
+        List<BlogTag> tags = blogTagService.getAllBlogTags(keyword);
+        return Result.success(tags);
     }
 
+    /**
+     * 分页获取标签（供管理表格使用，支持 keyword 模糊搜索）。
+     */
+    @GetMapping("/page")
+    public Result<PageResult> getBlogTagsPaged(@RequestParam(required = false) String keyword,
+                                               @RequestParam(defaultValue = "1") Integer page,
+                                               @RequestParam(defaultValue = "10") Integer pageSize) {
+        PageResult pageResult = blogTagService.getBlogTagsPaged(keyword, page, pageSize);
+        return Result.success(pageResult);
+    }
+
+    /**
+     * 根据id获取标签
+     */
     @GetMapping("/{id}")
-    public Result<BlogTag> getBlogTagById(@PathVariable Integer id) {
-        BlogTag blogTag = blogTagService.getById(id);
-        return Result.success(blogTag);
+    public Result<TagResponse> getBlogTagById(@PathVariable Integer id) {
+        TagResponse tagResponse = blogTagService.getById(id);
+        return Result.success(tagResponse);
     }
 
+    /**
+     * 更新标签
+     */
     @PutMapping("/{id}")
     public Result<TagResponse> updateBlogTag(@PathVariable Integer id,
                                              @RequestBody @Valid TagUpdateDTO tagUpdateDTO){
@@ -46,7 +71,10 @@ public class BlogTagController {
         return Result.success(tagResponse);
     }
 
-    @DeleteMapping("/tags/{id}")
+    /**
+     * 删除标签
+     */
+    @DeleteMapping("/{id}")
     public Result deleteBlogTag(@PathVariable Integer id) {
         blogTagService.deleteBlogTag(id);
         return Result.success();

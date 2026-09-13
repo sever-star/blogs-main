@@ -33,6 +33,9 @@ public class BlogUserController {
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
 
+    /**
+     * 登录
+     */
     @PostMapping("/login")
     public Result<LoginResponse> login(@RequestBody @Valid LoginDTO loginDTO,
                                        HttpServletRequest request,
@@ -41,24 +44,36 @@ public class BlogUserController {
         return Result.success(loginResponse);
     }
 
+    /**
+     * 获取当前用户信息
+     */
     @GetMapping("/me")
     public Result<UserVO> me(@RequestHeader("Authorization") String authorization) {
         UserVO userVO = blogUserService.getUser(authorization);
         return Result.success(userVO);
     }
 
+    /**
+     * 更新用户信息
+     */
     @PutMapping("/me")
         public Result<UserVO> update(@RequestHeader("Authorization") String authorization,
                                    @RequestBody UserDTO userDTO) {
         UserVO updatedUser = blogUserService.update(authorization, userDTO);
         return Result.success(updatedUser);
     }
+    /**
+     * 注册
+     */
     @PostMapping("/register")
     public Result<LoginResponse> register(@RequestBody @Valid RegisterDTO registerDTO) {
         LoginResponse loginResponse = blogUserService.register(registerDTO);
         return Result.success(loginResponse);
 
     }
+    /**
+     * 刷新Token
+     */
 
     @PostMapping("/refresh")
     public Result<?> refresh(@CookieValue(name = "refreshToken", required = false) String refreshToken,
@@ -94,6 +109,9 @@ public class BlogUserController {
         }
     }
 
+    /**
+     * 登出
+     */
     @PostMapping("/logout")
     public Result<?> logout(@CookieValue(name = "refreshToken", required = false) String refreshToken,
                             HttpServletResponse response) {
@@ -101,6 +119,9 @@ public class BlogUserController {
         return Result.success("退出登录成功");
     }
 
+    /**
+     * 设置刷新令牌Cookie
+     */
     private void setRefreshTokenCookie(HttpServletResponse response, String token, long maxAgeMs) {
         Cookie cookie = new Cookie("refreshToken", token);
         cookie.setHttpOnly(true);
@@ -110,6 +131,9 @@ public class BlogUserController {
         response.addCookie(cookie);
     }
 
+    /**
+     * 清除刷新令牌Cookie
+     */
     private void clearRefreshTokenCookie(HttpServletResponse response) {
         Cookie cookie = new Cookie("refreshToken", null);
         cookie.setHttpOnly(true);
@@ -119,5 +143,8 @@ public class BlogUserController {
         response.addCookie(cookie);
     }
 
+    /**
+     * 访问令牌DTO
+     */
     public record AccessTokenDTO(String accessToken) {}
 }
