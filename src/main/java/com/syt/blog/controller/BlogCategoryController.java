@@ -60,24 +60,6 @@ public class BlogCategoryController {
     }
 
     /**
-     * 查询顶级分类
-     */
-    @GetMapping("/top")
-    public Result<List<BlogCategory>> getTopCategories() {
-        List<BlogCategory> categories = blogCategoryService.getTopCategories();
-        return Result.success(categories);
-    }
-
-    /**
-     * 查询子分类
-     */
-    @GetMapping("/sub/{parentId}")
-    public Result<List<BlogCategory>> getSubCategories(@PathVariable Long parentId) {
-        List<BlogCategory> categories = blogCategoryService.getSubCategories(parentId);
-        return Result.success(categories);
-    }
-
-    /**
      * 根据 ID 查询分类
      */
     @GetMapping("/{id}")

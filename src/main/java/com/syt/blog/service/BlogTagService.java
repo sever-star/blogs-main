@@ -32,11 +32,12 @@ public class BlogTagService {
      * @param tagUpdateDTO
      * @return
      */
+    @Transactional
     public TagResponse saveBlogTag(TagUpdateDTO tagUpdateDTO) {
-        BlogTag blogTag = blogTagRepository.findByName(tagUpdateDTO.getName());
-        if (blogTag != null) {
+        if (blogTagRepository.existsByName(tagUpdateDTO.getName())) {
             throw new DuplicateNameException("标签名称重复");
         }
+        BlogTag blogTag = new BlogTag();
         blogTag.setName(tagUpdateDTO.getName());
         blogTagRepository.save(blogTag);
         log.info("保存标签：{}", blogTag);
@@ -88,7 +89,6 @@ public class BlogTagService {
      * @return
      */
     public TagResponse getById(Integer id) {
-
         BlogTag blogTag = blogTagRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("标签不存在"));
         TagResponse tagResponse = new TagResponse();
         toTagResponse(blogTag, tagResponse);
@@ -116,6 +116,7 @@ public class BlogTagService {
      * 删除标签
      * @param id
      */
+    @Transactional
     public void deleteBlogTag(Integer id) {
         blogTagRepository.findById(id).orElseThrow(()->new ResourceNotFoundException("标签不存在"));
         blogTagRepository.deleteById(id);
@@ -125,6 +126,6 @@ public class BlogTagService {
     private void toTagResponse(BlogTag blogTag, TagResponse tagResponse) {
         tagResponse.setId(blogTag.getId());
         tagResponse.setName(blogTag.getName());
-        tagResponse.setCreatedAt(blogTag.getCreatedAt().format(FMT));
+        tagResponse.setCreatedAt(blogTag.getCreatedAt());
     }
 }

@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 /**
  * 文章分类实体
  * <p>
- * 映射 blog_categories 表，支持无限极分类（parent_id）
+ * 映射 blog_categories 表，扁平结构（无父子层级，每个分类都是独立的一级分类）
  */
 @Data
 @NoArgsConstructor
@@ -28,13 +28,7 @@ public class BlogCategory {
     @Column(nullable = false, length = 50)
     private String name;
 
-    /** 父分类 ID，0 代表顶级分类 */
-    @Column(name = "parent_id", columnDefinition = "INT UNSIGNED DEFAULT 0")
-    private Integer parentId;
 
-    /** 排序序号 */
-    @Column(name = "sort_order", nullable = false, columnDefinition = "INT DEFAULT 0")
-    private Integer sortOrder;
 
     /** 创建时间 */
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -43,7 +37,5 @@ public class BlogCategory {
     @PrePersist
     protected void onCreate() {
         if (this.createdAt == null) this.createdAt = LocalDateTime.now();
-        if (this.parentId == null) this.parentId = 0;
-        if (this.sortOrder == null) this.sortOrder = 0;
     }
 }

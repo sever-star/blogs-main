@@ -17,6 +17,7 @@ import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
 
@@ -41,8 +42,9 @@ public class BlogUserService {
      */
     public LoginResponse login(LoginDTO loginDTO, HttpServletRequest request, HttpServletResponse response) {
         BlogUser user = blogUserRepository.findByUsername(loginDTO.getUsername());
+        BCryptPasswordEncoder bCryptPasswordEncoder = new BCryptPasswordEncoder();
+        if (user == null || !bCryptPasswordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
 
-        if (user == null || !user.getPassword().equals(loginDTO.getPassword())) {
             throw new BusinessException(401, "用户名或密码错误");
         }
         String accessToken = jwtUtils.generateToken(user.getId(), user.getUsername());
@@ -111,8 +113,9 @@ public class BlogUserService {
         }
 
         BlogUser newUser = new BlogUser();
+        BCryptPasswordEncoder bCryptPasswordEncoder=new BCryptPasswordEncoder();
+        newUser.setPassword(bCryptPasswordEncoder.encode(registerDTO.getPassword()));
         newUser.setUsername(username);
-        newUser.setPassword(registerDTO.getPassword());
         newUser.setEmail(registerDTO.getEmail());
         blogUserRepository.save(newUser);
 

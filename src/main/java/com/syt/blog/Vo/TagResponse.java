@@ -11,5 +11,5 @@ import java.time.LocalDateTime;
 public class TagResponse {
     private Integer id;
     private String name;
-    private String createdAt;
+    private LocalDateTime createdAt;
 }

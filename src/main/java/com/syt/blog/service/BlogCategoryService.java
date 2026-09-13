@@ -73,16 +73,6 @@ public class BlogCategoryService {
                 result.getTotalPages());
     }
 
-    
-    public List<BlogCategory> getTopCategories() {
-        return blogCategoryRepository.findByParentId(0L);
-    }
-
-    
-    public List<BlogCategory> getSubCategories(Long parentId) {
-        return blogCategoryRepository.findByParentId(parentId);
-    }
-
     /**
      * 根据 ID 获取分类
      * @param id 分类 ID
@@ -107,9 +97,7 @@ public class BlogCategoryService {
         if (exists) {
             throw new DuplicateNameException("分类名称已存在: " + categoryDTO.getName());
         }
-        blogCategory.setName(categoryDTO.getName());
-        if (categoryDTO.getParentId() != null) blogCategory.setParentId(categoryDTO.getParentId());
-        if (categoryDTO.getSortOrder() != null) blogCategory.setSortOrder(categoryDTO.getSortOrder());
+        toCategory(categoryDTO, blogCategory);
         return blogCategoryRepository.save(blogCategory);
     }
 
@@ -126,7 +114,5 @@ public class BlogCategoryService {
     }
     private void toCategory(CategoryDTO categoryDTO, BlogCategory blogCategory){
         blogCategory.setName(categoryDTO.getName());
-        blogCategory.setParentId(categoryDTO.getParentId());
-        blogCategory.setSortOrder(categoryDTO.getSortOrder());
     }
 }

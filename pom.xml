@@ -91,6 +91,14 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
+        <!-- 仅引入 BCryptPasswordEncoder（密码哈希），不触发 Spring Security 的 SecurityFilterChain 自动配置。
+             本项目鉴权由 JwtInterceptor（config/WebConfig）实现，无需 spring-boot-starter-security，
+             后者会默认对所有 URL 启用 HTTP Basic + CSRF，在 DispatcherServlet 之前拦截请求，
+             导致跨域响应不带 Access-Control-Allow-Origin 而被浏览器误报为 CORS 错误。 -->
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-crypto</artifactId>
+        </dependency>
     </dependencies>
 
 

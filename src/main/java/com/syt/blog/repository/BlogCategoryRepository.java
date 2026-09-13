@@ -34,14 +34,6 @@ public interface BlogCategoryRepository extends JpaRepository<BlogCategory, Inte
     boolean existsByName(String name);
 
     /**
-     * 根据父分类 ID 查询子分类
-     *
-     * @param parentId 父分类 ID
-     * @return 子分类列表
-     */
-    List<BlogCategory> findByParentId(Long parentId);
-
-    /**
      * 根据分类名称模糊查询
      *
      * @param name   分类名称
