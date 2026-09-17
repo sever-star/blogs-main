@@ -37,6 +37,7 @@ public class BlogCategoryService {
          blogCategoriesDao.insert(blogCategories);
         CategoryResponse categoryResponse = CategoryMapper.INSTANCE.blogCategoriesToCategoryResponse(blogCategories);
         return categoryResponse;
+
     }
 
     /**
