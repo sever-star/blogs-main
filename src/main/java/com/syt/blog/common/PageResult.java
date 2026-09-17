@@ -12,8 +12,8 @@ import java.util.List;
 @NoArgsConstructor
 public class PageResult {
     private List<?> data;
-    private long total;
-    private int page;
-    private int pageSize;
-    private int totalPages;
+    private long total;// 总记录数
+    private int page;// 当前页码
+    private int pageSize;// 每页大小
+    private int totalPages;// 总页数
 }

@@ -1,4 +1,4 @@
-package com.syt.blog.dto;
+package com.syt.blog.DTO.Request;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
@@ -14,7 +14,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class LoginDTO {
+public class LoginRequest {
 
     /** 用户名 */
     @NotBlank(message = "用户名不能为空")

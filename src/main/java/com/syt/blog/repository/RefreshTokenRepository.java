@@ -1,13 +1,21 @@
 package com.syt.blog.repository;
 
-import com.syt.blog.entity.RefreshToken;
-import org.springframework.data.jpa.repository.JpaRepository;
+import com.syt.blog.jooq.tables.pojos.BlogRefreshTokens;
+import org.jooq.DSLContext;
+import org.springframework.stereotype.Repository;
 
-import java.util.Optional;
+import static com.syt.blog.jooq.Tables.BLOG_REFRESH_TOKENS;
 
-public interface RefreshTokenRepository extends JpaRepository<RefreshToken, Long> {
+@Repository
+public class RefreshTokenRepository {
+   private final DSLContext dsl;
 
-    Optional<RefreshToken> findByToken(String token);
-
-    void deleteByUserIdAndToken(Integer userId, String token);
+    public RefreshTokenRepository(DSLContext dsl) {
+        this.dsl = dsl;
+    }
+    public BlogRefreshTokens findByToken(String token) {
+        return dsl.selectFrom(BLOG_REFRESH_TOKENS)
+                .where(BLOG_REFRESH_TOKENS.TOKEN.eq(token))
+                .fetchOneInto(BlogRefreshTokens.class);
+    }
 }

@@ -1,22 +1,21 @@
 package com.syt.blog.service;
 
-import com.syt.blog.Vo.TagResponse;
+import com.syt.blog.DTO.Mapper.TagMapper;
+import com.syt.blog.DTO.Response.TagResponse;
 import com.syt.blog.common.DuplicateNameException;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.ResourceNotFoundException;
-import com.syt.blog.dto.TagUpdateDTO;
-import com.syt.blog.entity.BlogTag;
-import com.syt.blog.repository.BlogTagRepository;
+import com.syt.blog.DTO.Request.TagRequest;
+import com.syt.blog.jooq.tables.daos.BlogTagsDao;
+import com.syt.blog.jooq.tables.pojos.BlogTags;
+import com.syt.blog.repository.TagRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
-import org.springframework.data.domain.Pageable;
-
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -24,25 +23,24 @@ import java.util.List;
 @Slf4j
 public class BlogTagService {
 
-    private final BlogTagRepository blogTagRepository;
+    private final TagRepository tagRepository;
+    private final BlogTagsDao blogTagsDao;
     private final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
      * 保存标签
-     * @param tagUpdateDTO
+     * @param blogTags
      * @return
      */
     @Transactional
-    public TagResponse saveBlogTag(TagUpdateDTO tagUpdateDTO) {
-        if (blogTagRepository.existsByName(tagUpdateDTO.getName())) {
+    public TagResponse saveBlogTag(BlogTags blogTags) {
+        if (tagRepository.existsByName(blogTags.getName())) {
             throw new DuplicateNameException("标签名称重复");
         }
-        BlogTag blogTag = new BlogTag();
-        blogTag.setName(tagUpdateDTO.getName());
-        blogTagRepository.save(blogTag);
-        log.info("保存标签：{}", blogTag);
+        blogTagsDao.insert(blogTags);
+        log.info("保存标签：{}", blogTags);
         TagResponse tagResponse = new TagResponse();
-        toTagResponse(blogTag, tagResponse);
+        tagResponse = TagMapper.INSTANCE.blogTagsToTagResponse(blogTags);
 
         return tagResponse;
     }
@@ -54,11 +52,19 @@ public class BlogTagService {
      * @param keyword 名称关键词，可为空
      * @return 标签全量列表
      */
-    public List<BlogTag> getAllBlogTags(String keyword) {
+    public List<TagResponse> getAllBlogTags(String keyword) {
+        List<TagResponse> tagResponses = new ArrayList<>();
+        List<BlogTags> blogTags;
         if (keyword != null && !keyword.trim().isEmpty()) {
-            return blogTagRepository.findByNameContaining(keyword);
+            blogTags = blogTagsDao.fetchByName(keyword);
+        }else{
+            blogTags=blogTagsDao.findAll();
         }
-        return blogTagRepository.findAll();
+        for(BlogTags blogTag : blogTags) {
+            TagResponse tagResponse=TagMapper.INSTANCE.blogTagsToTagResponse(blogTag);
+            tagResponses.add(tagResponse);
+        }
+        return tagResponses;
     }
 
     /**
@@ -70,18 +76,13 @@ public class BlogTagService {
      * @return 分页结果
      */
     public PageResult getBlogTagsPaged(String keyword, Integer page, Integer pageSize) {
-        Pageable pageable = PageRequest.of(page - 1, pageSize);
-        Page<BlogTag> pageResult;
+        PageResult pageResult;
         if (keyword != null && !keyword.trim().isEmpty()) {
-            pageResult = blogTagRepository.findByNameContaining(keyword, pageable);
+            pageResult = tagRepository.findPaged(page, pageSize, keyword);
         } else {
-            pageResult = blogTagRepository.findAll(pageable);
+            pageResult = tagRepository.findByNameContaining(page, pageSize);
         }
-        return new PageResult(pageResult.getContent(),
-                pageResult.getTotalElements(),
-                pageResult.getNumber(),
-                pageResult.getSize(),
-                pageResult.getTotalPages());
+        return pageResult;
     }
     /**
      * 根据id获取标签
@@ -89,27 +90,35 @@ public class BlogTagService {
      * @return
      */
     public TagResponse getById(Integer id) {
-        BlogTag blogTag = blogTagRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("标签不存在"));
-        TagResponse tagResponse = new TagResponse();
-        toTagResponse(blogTag, tagResponse);
+        BlogTags blogTag = blogTagsDao.findById(id);
+        if (blogTag == null){
+            throw new ResourceNotFoundException("标签不存在");
+        }
+        TagResponse tagResponse;
+        tagResponse = TagMapper.INSTANCE.blogTagsToTagResponse(blogTag);
         return tagResponse;
     }
     /**
      * 更新标签
      * @param id
-     * @param tagUpdateDTO
+     * @param blogTags
      * @return
      */
 
     @Transactional
-    public TagResponse updateBlogTag(Integer id, TagUpdateDTO tagUpdateDTO) {
-        BlogTag blogTag = blogTagRepository.findById(id).orElseThrow(() -> new ResourceNotFoundException("标签不存在"));
-        boolean exists = blogTagRepository.existsByNameAndIdNot(tagUpdateDTO.getName().trim(), id);
+    public TagResponse updateBlogTag(Integer id, BlogTags blogTags) {
+        BlogTags blogTag = blogTagsDao.findById(id);
+        if (blogTag == null) {
+            throw new ResourceNotFoundException("标签不存在");
+        }
+        boolean exists = tagRepository.existsByNameAndIdNot(blogTags.getName().trim(), id);
         if (exists)
             throw new DuplicateNameException("标签名称重复");
-        blogTag.setName(tagUpdateDTO.getName().trim());
-        TagResponse tagResponse = new TagResponse();
-        toTagResponse(blogTag, tagResponse);
+        blogTags.setId(id);
+        log.info("更新标签：{}",id);
+        blogTag= tagRepository.update(blogTags);
+        log.info("更新标签：{}", blogTag);
+        TagResponse tagResponse = TagMapper.INSTANCE.blogTagsToTagResponse(blogTag);
         return tagResponse;
     }
     /**
@@ -118,14 +127,11 @@ public class BlogTagService {
      */
     @Transactional
     public void deleteBlogTag(Integer id) {
-        blogTagRepository.findById(id).orElseThrow(()->new ResourceNotFoundException("标签不存在"));
-        blogTagRepository.deleteById(id);
+        BlogTags blogTag = blogTagsDao.findById(id);
+        if (blogTag == null) {
+            throw new ResourceNotFoundException("标签不存在");
+        }
+        blogTagsDao.deleteById(id);
         // TODO 删除标签需要清除和文章之间的关联
-    }
-
-    private void toTagResponse(BlogTag blogTag, TagResponse tagResponse) {
-        tagResponse.setId(blogTag.getId());
-        tagResponse.setName(blogTag.getName());
-        tagResponse.setCreatedAt(blogTag.getCreatedAt());
     }
 }

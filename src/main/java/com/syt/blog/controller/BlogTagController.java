@@ -1,11 +1,13 @@
 package com.syt.blog.controller;
 
 
-import com.syt.blog.Vo.TagResponse;
+import com.syt.blog.DTO.Mapper.TagMapper;
+import com.syt.blog.DTO.Response.TagResponse;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
-import com.syt.blog.dto.TagUpdateDTO;
-import com.syt.blog.entity.BlogTag;
+import com.syt.blog.DTO.Request.TagRequest;
+
+import com.syt.blog.jooq.tables.pojos.BlogTags;
 import com.syt.blog.service.BlogTagService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,8 +27,9 @@ public class BlogTagController {
      * 创建标签
      */
     @PostMapping
-    public Result<TagResponse> createBlogTag(@Valid @RequestBody TagUpdateDTO tagUpdateDTO) {
-        TagResponse tagResponse = blogTagService.saveBlogTag(tagUpdateDTO);
+    public Result<TagResponse> createBlogTag(@Valid @RequestBody TagRequest tagRequest) {
+        BlogTags blogTag = TagMapper.INSTANCE.blogTagsToBlogTagRequest(tagRequest);
+        TagResponse tagResponse = blogTagService.saveBlogTag(blogTag);
         return Result.success(tagResponse);
     }
 
@@ -35,8 +38,8 @@ public class BlogTagController {
      * 支持可选 keyword 名称模糊过滤。
      */
     @GetMapping
-    public Result<List<BlogTag>> getAllBlogTags(@RequestParam(required = false) String keyword) {
-        List<BlogTag> tags = blogTagService.getAllBlogTags(keyword);
+    public Result<List<TagResponse>> getAllBlogTags(@RequestParam(required = false) String keyword) {
+        List<TagResponse> tags = blogTagService.getAllBlogTags(keyword);
         return Result.success(tags);
     }
 
@@ -65,9 +68,9 @@ public class BlogTagController {
      */
     @PutMapping("/{id}")
     public Result<TagResponse> updateBlogTag(@PathVariable Integer id,
-                                             @RequestBody @Valid TagUpdateDTO tagUpdateDTO){
-        TagResponse tagResponse;
-        tagResponse = blogTagService.updateBlogTag(id, tagUpdateDTO);
+                                             @RequestBody @Valid TagRequest tagRequest){
+        BlogTags blogTags= TagMapper.INSTANCE.blogTagsToBlogTagRequest(tagRequest);
+        TagResponse tagResponse = blogTagService.updateBlogTag(id, blogTags);
         return Result.success(tagResponse);
     }
 

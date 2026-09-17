@@ -2,6 +2,7 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
+
     <parent>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-starter-parent</artifactId>
@@ -27,7 +28,7 @@
         <url/>
     </scm>
     <properties>
-        <java.version>17</java.version>
+        <java.version>25</java.version>
     </properties>
     <dependencies>
         <!-- Spring Boot Web 启动器 -->
@@ -49,11 +50,34 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- PostgreSQL 驱动：连接 PostgreSQL 数据库 -->
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- JOOQ：用于生成类型安全的 SQL 代码 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jooq</artifactId>
+        </dependency>
+
         <!-- Lombok：简化实体类代码（自动生成 getter/setter 等） -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct</artifactId>
+            <version>1.5.3.Final</version>
+        </dependency>
+        <dependency>
+            <groupId>org.mapstruct</groupId>
+            <artifactId>mapstruct-processor</artifactId>
+            <version>1.5.3.Final</version>
         </dependency>
 
         <!-- JWT：用于生成和解析 JSON Web Token，实现用户身份认证 -->
@@ -108,8 +132,62 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+
+            </plugin>
+            <plugin>
+                <groupId>org.jooq</groupId>
+                <artifactId>jooq-codegen-maven</artifactId>
+                <version>3.21.8</version> <!-- 请使用你需要的 jOOQ 版本 -->
+                <executions>
+                    <execution>
+                        <id>jooq-codegen</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                    </execution>
+                </executions>
+                <!-- 核心配置见下文 -->
+                <configuration>
+                    <!-- 数据库连接信息 -->
+                    <jdbc>
+                        <driver>org.postgresql.Driver</driver>
+                        <url>jdbc:postgresql://localhost:5432/postgres</url>
+                        <user>postgres</user>
+                        <password>123456</password>
+                    </jdbc>
+
+                    <!-- 代码生成器配置 -->
+                    <generator>
+                        <database>
+                            <name>org.jooq.meta.postgres.PostgresDatabase</name>
+                            <inputSchema>public</inputSchema> <!-- 针对 MySQL，可选，默认与数据库同名 -->
+                            <includes>.*</includes> <!-- 包含所有表，也可用正则筛选 -->
+                            <excludes></excludes> <!-- 排除表 -->
+                        </database>
+                        <target>
+                            <!-- 生成代码的存放位置与包名 -->
+                            <packageName>com.syt.blog.jooq</packageName>
+                            <directory>target/generated-sources/jooq</directory>
+                        </target>
+                        <generate>
+
+                            <interfaceOnly>true</interfaceOnly>
+                            <!-- 关键：开启 DAO 类生成 -->
+                            <daos>true</daos>
+
+                            <!-- 推荐：为生成的类加上 Spring 注解 -->
+                            <springAnnotations>true</springAnnotations>
+
+                            <!-- 可选：让 DAO 带上 @Transactional 注解 -->
+                            <springDao>true</springDao>
+                        </generate>
+                        <!-- 其他 database / target 配置保持不变 -->
+                    </generator>
+                </configuration>
             </plugin>
         </plugins>
     </build>
+
 
 </project>

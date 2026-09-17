@@ -1,9 +1,11 @@
 package com.syt.blog.controller;
 
+import com.syt.blog.DTO.Mapper.CategoryMapper;
+import com.syt.blog.DTO.Response.CategoryResponse;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
-import com.syt.blog.dto.CategoryDTO;
-import com.syt.blog.entity.BlogCategory;
+import com.syt.blog.DTO.Request.CategoryRequest;
+import com.syt.blog.jooq.tables.pojos.BlogCategories;
 import com.syt.blog.service.BlogCategoryService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -31,8 +33,9 @@ public class BlogCategoryController {
      * 创建分类
      */
     @PostMapping
-    public Result<BlogCategory> createCategory(@RequestBody @Valid CategoryDTO categoryDTO) {
-        BlogCategory saved = blogCategoryService.createCategory(categoryDTO);
+    public Result<CategoryResponse> createCategory(@RequestBody @Valid CategoryRequest categoryRequest) {
+        BlogCategories blogCategory = CategoryMapper.INSTANCE.categoryRequestToBlogCategories(categoryRequest);
+        CategoryResponse saved = blogCategoryService.createCategory(blogCategory);
         return Result.success(saved);
     }
 
@@ -43,8 +46,8 @@ public class BlogCategoryController {
      * 支持可选 keyword 名称模糊过滤。
      */
     @GetMapping
-    public Result<List<BlogCategory>> getAllCategories(@RequestParam(required = false) String keyword) {
-        List<BlogCategory> categories = blogCategoryService.getAllCategories(keyword);
+    public Result<List<CategoryResponse>> getAllCategories(@RequestParam(required = false) String keyword) {
+        List<CategoryResponse> categories = blogCategoryService.getAllCategories(keyword);
         return Result.success(categories);
     }
 
@@ -63,8 +66,8 @@ public class BlogCategoryController {
      * 根据 ID 查询分类
      */
     @GetMapping("/{id}")
-    public Result<BlogCategory> getCategory(@PathVariable Integer id) {
-        BlogCategory category = blogCategoryService.getCategoryById(id);
+    public Result<CategoryResponse> getCategory(@PathVariable Integer id) {
+        CategoryResponse category = blogCategoryService.getCategoryById(id);
         return Result.success(category);
     }
 
@@ -74,8 +77,9 @@ public class BlogCategoryController {
      * 更新分类
      */
     @PutMapping("/{id}")
-    public Result<BlogCategory> updateCategory(@PathVariable Integer id, @RequestBody @Valid CategoryDTO categoryDTO) {
-        BlogCategory updated = blogCategoryService.updateCategory(id, categoryDTO);
+    public Result<CategoryResponse> updateCategory(@PathVariable Integer id, @RequestBody @Valid CategoryRequest categoryRequest) {
+        BlogCategories blogCategory = CategoryMapper.INSTANCE.categoryRequestToBlogCategories(categoryRequest);
+        CategoryResponse updated = blogCategoryService.updateCategory(id, blogCategory);
         return Result.success(updated);
     }
 

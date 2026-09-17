@@ -1,18 +1,16 @@
 package com.syt.blog.controller;
 
 
-import com.syt.blog.Vo.LoginResponse;
+import com.syt.blog.DTO.Response.LoginResponse;
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
-import com.syt.blog.dto.LoginDTO;
-import com.syt.blog.dto.RegisterDTO;
-import com.syt.blog.dto.UserDTO;
-import com.syt.blog.entity.BlogUser;
-import com.syt.blog.entity.RefreshToken;
+import com.syt.blog.DTO.Request.UserRequest;
+import com.syt.blog.jooq.tables.pojos.BlogUsers;
+import com.syt.blog.DTO.Mapper.UserMapper;
 import com.syt.blog.service.BlogUserService;
 import com.syt.blog.service.RefreshTokenService;
 import com.syt.blog.util.JwtUtils;
-import com.syt.blog.Vo.UserVO;
+import com.syt.blog.DTO.Response.UserResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -37,10 +35,11 @@ public class BlogUserController {
      * 登录
      */
     @PostMapping("/login")
-    public Result<LoginResponse> login(@RequestBody @Valid LoginDTO loginDTO,
+    public Result<LoginResponse> login(@RequestBody @Valid UserRequest userRequest,
                                        HttpServletRequest request,
                                        HttpServletResponse response) {
-        LoginResponse loginResponse=blogUserService.login(loginDTO, request,response);
+        BlogUsers blogUsers = UserMapper.INSTANCE.Login(userRequest);
+        LoginResponse loginResponse=blogUserService.login(blogUsers, request,response);
         return Result.success(loginResponse);
     }
 
@@ -48,26 +47,28 @@ public class BlogUserController {
      * 获取当前用户信息
      */
     @GetMapping("/me")
-    public Result<UserVO> me(@RequestHeader("Authorization") String authorization) {
-        UserVO userVO = blogUserService.getUser(authorization);
-        return Result.success(userVO);
+    public Result<UserResponse> me(@RequestHeader("Authorization") String authorization) {
+        UserResponse userResponse = blogUserService.getUser(authorization);
+        return Result.success(userResponse);
     }
 
     /**
      * 更新用户信息
      */
     @PutMapping("/me")
-        public Result<UserVO> update(@RequestHeader("Authorization") String authorization,
-                                   @RequestBody UserDTO userDTO) {
-        UserVO updatedUser = blogUserService.update(authorization, userDTO);
+        public Result<UserResponse> update(@RequestHeader("Authorization") String authorization,
+                                           @RequestBody @Valid UserRequest userRequest) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.userDTOToBlogUsers(userRequest);
+        UserResponse updatedUser = blogUserService.update(authorization, blogUsers);
         return Result.success(updatedUser);
     }
     /**
      * 注册
      */
     @PostMapping("/register")
-    public Result<LoginResponse> register(@RequestBody @Valid RegisterDTO registerDTO) {
-        LoginResponse loginResponse = blogUserService.register(registerDTO);
+    public Result<LoginResponse> register(@RequestBody @Valid UserRequest UserRequest) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.userDTOToBlogUsers(UserRequest);
+        LoginResponse loginResponse = blogUserService.register(blogUsers);
         return Result.success(loginResponse);
 
     }
@@ -84,7 +85,7 @@ public class BlogUserController {
         }
 
         try {
-            RefreshToken rt = refreshTokenService.verifyRefreshToken(refreshToken);
+            //RefreshToken rt = refreshTokenService.verifyRefreshToken(refreshToken);
             Integer userId = jwtUtils.getUserIdFromToken(refreshToken);
             String username = jwtUtils.getUsernameFromToken(refreshToken);
 

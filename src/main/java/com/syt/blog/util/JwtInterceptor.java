@@ -1,8 +1,7 @@
-package com.syt.blog.Interceptor;
+package com.syt.blog.util;
 
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
-import com.syt.blog.util.JwtUtils;
 import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;

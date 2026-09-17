@@ -1,6 +1,6 @@
 package com.syt.blog.config;
 
-import com.syt.blog.Interceptor.JwtInterceptor;
+import com.syt.blog.util.JwtInterceptor;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;

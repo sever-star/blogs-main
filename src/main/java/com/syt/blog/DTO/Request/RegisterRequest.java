@@ -1,4 +1,4 @@
-package com.syt.blog.dto;
+package com.syt.blog.DTO.Request;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -15,7 +15,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class RegisterDTO {
+public class RegisterRequest {
 
     /** 用户名 */
     @NotBlank(message = "用户名不能为空")

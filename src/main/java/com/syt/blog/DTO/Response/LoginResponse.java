@@ -1,8 +1,7 @@
-package com.syt.blog.Vo;
+package com.syt.blog.DTO.Response;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Data
@@ -12,5 +11,5 @@ public class LoginResponse {
     /** JWT 令牌 */
     private String accessToken;
 
-    private UserVO user;
+    private UserResponse user;
 }

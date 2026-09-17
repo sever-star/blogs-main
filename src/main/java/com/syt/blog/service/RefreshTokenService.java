@@ -1,13 +1,15 @@
 package com.syt.blog.service;
 
-import com.syt.blog.entity.RefreshToken;
+
+import com.syt.blog.jooq.tables.daos.BlogRefreshTokensDao;
+import com.syt.blog.jooq.tables.pojos.BlogRefreshTokens;
 import com.syt.blog.repository.RefreshTokenRepository;
 import com.syt.blog.util.JwtUtils;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.Date;
+import java.time.LocalDateTime;
 
 @Service
 @RequiredArgsConstructor
@@ -15,30 +17,32 @@ import java.util.Date;
 public class RefreshTokenService {
 
     private final RefreshTokenRepository refreshTokenRepository;
+    private final BlogRefreshTokensDao refreshTokensDao;
     private final JwtUtils jwtUtils;
-
-    public RefreshToken saveRefreshToken(Integer userId, String token, String deviceId, String userAgent, String ip) {
-        RefreshToken refreshToken = RefreshToken.builder()
-                .userId(userId)
-                .token(token)
-                .deviceId(deviceId)
-                .userAgent(userAgent)
-                .ip(ip)
-                .expiresAt(new Date(System.currentTimeMillis() + jwtUtils.getRefreshExpiration()))
-                .revoked(false)
-                .build();
-        return refreshTokenRepository.save(refreshToken);
+    public BlogRefreshTokens saveRefreshToken(Integer userId, String token, String deviceId, String userAgent, String ip) {
+        BlogRefreshTokens refreshToken = new BlogRefreshTokens();
+        refreshToken.setUserId(userId);
+        refreshToken.setToken(token);
+        refreshToken.setDeviceId(deviceId);
+        refreshToken.setUserAgent(userAgent);
+        refreshToken.setIp(ip);
+        refreshToken.setExpiresAt(LocalDateTime.now().plusSeconds(jwtUtils.getRefreshExpiration()));
+        refreshToken.setRevoked(0);
+        refreshTokensDao.insert(refreshToken);
+        return refreshToken;
     }
 
-    public RefreshToken verifyRefreshToken(String token) {
-        RefreshToken refreshToken = refreshTokenRepository.findByToken(token)
-                .orElseThrow(() -> new RuntimeException("Refresh token 不存在"));
+    public BlogRefreshTokens verifyRefreshToken(String token) {
+        BlogRefreshTokens refreshToken = refreshTokenRepository.findByToken(token);
+        if (refreshToken == null) {
+            throw new RuntimeException("Refresh token 不存在");
+        }
 
-        if (refreshToken.getRevoked() != null && refreshToken.getRevoked()) {
+        if (refreshToken.getRevoked() != null && refreshToken.getRevoked().equals(1)) {
             throw new RuntimeException("Refresh token 已被撤销");
         }
 
-        if (refreshToken.getExpiresAt().before(new Date())) {
+        if (refreshToken.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new RuntimeException("Refresh token 已过期");
         }
 
@@ -54,11 +58,12 @@ public class RefreshTokenService {
      * @param token 刷新令牌
      */
     public void revokeRefreshToken(String token) {
-        //使用ifPresent判断长有效token是否存在。存在撤销
-        refreshTokenRepository.findByToken(token).ifPresent(rt -> {
-            rt.setRevoked(true);
-            rt.setUpdatedAt(new Date());
-            refreshTokenRepository.save(rt);
-        });
+        BlogRefreshTokens refreshToken = refreshTokenRepository.findByToken(token);
+        if (refreshToken == null) {
+            throw new RuntimeException("Refresh token 不存在");
+        }
+        refreshToken.setRevoked(1);
+        refreshToken.setUpdatedAt(LocalDateTime.now());
+        refreshTokensDao.update(refreshToken);
     }
 }

@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletionException;
 
 /**
  * 阿里云 OSS 文件存储工具类

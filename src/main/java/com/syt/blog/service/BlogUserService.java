@@ -1,15 +1,14 @@
 package com.syt.blog.service;
 
-import com.syt.blog.Vo.LoginResponse;
+import com.syt.blog.DTO.Mapper.UserMapper;
+import com.syt.blog.DTO.Response.LoginResponse;
 import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
-import com.syt.blog.dto.LoginDTO;
-import com.syt.blog.dto.RegisterDTO;
-import com.syt.blog.dto.UserDTO;
-import com.syt.blog.entity.BlogUser;
-import com.syt.blog.repository.BlogUserRepository;
+import com.syt.blog.jooq.tables.daos.BlogUsersDao;
+import com.syt.blog.jooq.tables.pojos.BlogUsers;
+import com.syt.blog.repository.UserRepository;
 import com.syt.blog.util.JwtUtils;
-import com.syt.blog.Vo.UserVO;
+import com.syt.blog.DTO.Response.UserResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -20,15 +19,19 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.sql.SQLDataException;
+
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class BlogUserService {
 
-    private final BlogUserRepository blogUserRepository;
+    private final UserRepository userRepository;
+    private final BCryptPasswordEncoder bCryptPasswordEncoder;
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
+    private final BlogUsersDao blogUsersDao;
 
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
@@ -36,30 +39,30 @@ public class BlogUserService {
     /**
      * 用户登录
      *
-     * @param loginDTO 登录参数
+     * @param blogUsers 登录参数
      * @param request HTTP 请求
      * @return 登录结果
      */
-    public LoginResponse login(LoginDTO loginDTO, HttpServletRequest request, HttpServletResponse response) {
-        BlogUser user = blogUserRepository.findByUsername(loginDTO.getUsername());
-        BCryptPasswordEncoder bCryptPasswordEncoder = new BCryptPasswordEncoder();
-        if (user == null || !bCryptPasswordEncoder.matches(loginDTO.getPassword(), user.getPassword())) {
+    public LoginResponse login(BlogUsers blogUsers, HttpServletRequest request, HttpServletResponse response) {
 
+        BlogUsers users = userRepository.findByUsername(blogUsers.getUsername());
+        if (users == null || !bCryptPasswordEncoder.matches(blogUsers.getPassword(), users.getPassword())) {
             throw new BusinessException(401, "用户名或密码错误");
         }
-        String accessToken = jwtUtils.generateToken(user.getId(), user.getUsername());
-        String refreshToken = jwtUtils.generateRefreshToken(user.getId(), user.getUsername());
+
+        String accessToken = jwtUtils.generateToken(users.getId(), users.getUsername());
+        String refreshToken = jwtUtils.generateRefreshToken(users.getId(), users.getUsername());
 
         String userAgent = request.getHeader("User-Agent");
         String ip = getClientIp(request);
         refreshTokenService.saveRefreshToken(
-                user.getId(), refreshToken, null, userAgent, ip
+                users.getId(), refreshToken, null, userAgent, ip
         );
 
         setRefreshTokenCookie(response, refreshToken, refreshExpiration);
 
-        UserVO userVO = toUserVO(user);
-        LoginResponse loginResponse = new LoginResponse(accessToken, userVO);
+        UserResponse userResponse = UserMapper.INSTANCE.BlogUsersToUserResponse(users);
+        LoginResponse loginResponse = new LoginResponse(accessToken, userResponse);
         return loginResponse;
     }
     /**
@@ -88,42 +91,45 @@ public class BlogUserService {
       * @param authorization 访问令牌
      * @return 用户信息
      */
-    public UserVO getUser(String authorization) {
+    public UserResponse getUser(String authorization) {
         String token = authorization.replace("Bearer ", "");
         Integer userId = jwtUtils.getUserIdFromToken(token);
-        return toUserVO(blogUserRepository.findById(userId).orElseThrow(() -> new BusinessException(ErrorCode.AUTH_FAILED, "用户不存在")));
+        BlogUsers user = blogUsersDao.findById(userId);
+        if (user.getId() == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED, "用户不存在");
+        }
+        return UserMapper.INSTANCE.BlogUsersToUserResponse(user);
     }
 
     /**
      * 用户注册
      *
-     * @param registerDTO 注册参数
+     * @param blogUsers 注册参数
      * @return 注册结果
      */
     @Transactional
-    public LoginResponse register(RegisterDTO registerDTO) {
-        String username = registerDTO.getUsername();
-        log.info("Registering user: " + username);
+    public LoginResponse register(BlogUsers blogUsers) {
+        String username = blogUsers.getUsername();
+        log.info("blogUsers user: " + username);
 
-        BlogUser existingUser = blogUserRepository.findByUsername(username);
+        BlogUsers existingUser = userRepository.findByUsername(username);
         log.info("Existing user: " + existingUser);
 
         if (existingUser != null) {
             throw new BusinessException(ErrorCode.AUTH_FAILED, "用户已存在");
         }
 
-        BlogUser newUser = new BlogUser();
-        BCryptPasswordEncoder bCryptPasswordEncoder=new BCryptPasswordEncoder();
-        newUser.setPassword(bCryptPasswordEncoder.encode(registerDTO.getPassword()));
-        newUser.setUsername(username);
-        newUser.setEmail(registerDTO.getEmail());
-        blogUserRepository.save(newUser);
+        blogUsers.setPassword(bCryptPasswordEncoder.encode(blogUsers.getPassword()));
+        blogUsers.setUsername(username);
+        blogUsers.setEmail(blogUsers.getEmail());
+        blogUsersDao.insert(blogUsers);
 
-        log.info("userId: " + newUser.getId());
-        String accessToken = jwtUtils.generateToken(newUser.getId(), newUser.getUsername());
+        log.info("userId: " + blogUsers.getId());
+        String accessToken = jwtUtils.generateToken(blogUsers.getId(), blogUsers.getUsername());
         LoginResponse loginResponse = new LoginResponse();
         loginResponse.setAccessToken(accessToken);
-        loginResponse.setUser(toUserVO(newUser));
+        UserResponse userResponse = UserMapper.INSTANCE.BlogUsersToUserResponse(blogUsers);
+        loginResponse.setUser(userResponse);
         return loginResponse;
     }
 
@@ -131,28 +137,35 @@ public class BlogUserService {
      * 更新用户信息
      *
      * @param authorization    访问令牌
-     * @param userDTO 用户信息
+     * @param blogUsers 用户信息
      * @return 更新后的用户信息
      */
     @Transactional
-    public UserVO update(String authorization, UserDTO userDTO) {
+    public UserResponse update(String authorization, BlogUsers blogUsers) {
         String token = authorization.replace("Bearer ", "");
-        String username=jwtUtils.getUsernameFromToken(token);
-        BlogUser user = blogUserRepository.findByUsername(username);
-        if (user == null) {
-            throw new BusinessException(ErrorCode.AUTH_FAILED,"更新失败");
+        String username = jwtUtils.getUsernameFromToken(token);
+        BlogUsers existing = userRepository.findByUsername(username);
+        if (existing == null) {
+            throw new BusinessException(ErrorCode.AUTH_FAILED, "用户不存在");
         }
-        user.setNickname(userDTO.getNickname());
-        user.setAvatar(userDTO.getAvatar());
-        user.setBio(userDTO.getBio());
-        user.setWebsite(userDTO.getWebsite());
-        user.setGithub(userDTO.getGithub());
-        user.setWeibo(userDTO.getWeibo());
-        blogUserRepository.save(user);
-        UserVO userVO = toUserVO(user);
 
-        return userVO;
+        // 以 token 定位到的用户为准，防止越权修改他人信息，并保证主键正确
+        blogUsers.setId(existing.getId());
+        blogUsers.setEmail(existing.getEmail());
+        // 用户名不允许修改
+        blogUsers.setUsername(existing.getUsername());
+        // 注册时间、状态不可通过此接口修改
+        blogUsers.setCreatedAt(existing.getCreatedAt());
+        blogUsers.setStatus(existing.getStatus());
+        // 密码未传入时保留原密码，传入时加密
+//        if (blogUsers.getPassword() == null || blogUsers.getPassword().isBlank()) {
+            blogUsers.setPassword(existing.getPassword());
+//        } else {
+//            blogUsers.setPassword(bCryptPasswordEncoder.encode(blogUsers.getPassword()));
+//        }
 
+        blogUsersDao.update(blogUsers);
+        return UserMapper.INSTANCE.BlogUsersToUserResponse(blogUsers);
     }
     public void logout(String refreshToken, HttpServletResponse response) {
         if (refreshToken != null && !refreshToken.isEmpty()) {
@@ -189,29 +202,4 @@ public class BlogUserService {
         cookie.setMaxAge((int) (maxAgeMs / 1000));
         response.addCookie(cookie);
     }
-
-    /**
-     * 将 BlogUser 转换为 UserVO
-     *
-     * @param user BlogUser
-     * @return UserVO
-     */
-    private UserVO toUserVO(BlogUser user) {
-        if (user == null) {
-            return null;
-        }
-        UserVO userVO = new UserVO();
-        userVO.setId(user.getId());
-        userVO.setUsername(user.getUsername());
-        userVO.setNickname(user.getNickname());
-        userVO.setEmail(user.getEmail());
-        userVO.setAvatar(user.getAvatar());
-        userVO.setBio(user.getBio());
-        userVO.setWebsite(user.getWebsite());
-        userVO.setGithub(user.getGithub());
-        userVO.setWeibo(user.getWeibo());
-        return userVO;
-    }
-
-
 }
