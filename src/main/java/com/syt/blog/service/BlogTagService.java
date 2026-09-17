@@ -110,7 +110,7 @@ public class BlogTagService {
         BlogTags blogTag = blogTagsDao.findById(id);
         if (blogTag == null) {
             throw new ResourceNotFoundException("标签不存在");
-            
+
         }
         boolean exists = tagRepository.existsByNameAndIdNot(blogTags.getName().trim(), id);
         if (exists)
