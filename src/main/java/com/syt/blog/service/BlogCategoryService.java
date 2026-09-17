@@ -26,6 +26,7 @@ public class BlogCategoryService {
     public BlogCategoryService(CategoryRepository categoryRepository, BlogCategoriesDao blogCategoriesDao) {
         this.categoryRepository = categoryRepository;
         this.blogCategoriesDao = blogCategoriesDao;
+
     }
 
     @Transactional
