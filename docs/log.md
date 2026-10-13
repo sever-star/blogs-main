@@ -1,0 +1,596 @@
+# 开发问题解决日志 · blog 系统
+
+> 用途：记录每个 bug 的**现象 → 定位过程 → 根因 → 修复 → 验证**，便于复盘与论文撰写。
+> 约定：**新条目追加在最上方**（倒序），每条注明日期。
+> 相关文档：`database-review.md`（库表评审）、`enum-dictionary.md`（枚举字典）、`supplementary-schema.sql`（补充 DDL）
+
+---
+
+## 2026-09-24 · 创建文章 400：`null value in column "created_at"` 违反非空约束
+
+### 现象
+
+`POST /api/posts`（管理员身份）返回 400：
+
+```
+DataIntegrityViolationException: jOOQ; SQL [insert into "public"."blog_posts"
+  ("user_id", "category_id", "title", "content_md", "summary", "cover_image",
+   "reading_time", "status", "allow_comment", "created_at", "updated_at")
+  values (...) returning "public"."blog_posts"."id"];
+ERROR: null value in column "created_at" of relation "blog_posts" violates not-null constraint
+详细：Failing row contains (12, 10, 3, 验收用文章标题, AAA..., null, null, null, null,
+       0, 0, 0, 15, 2, 0, 1, null, null, null, 0).
+```
+
+### 定位过程
+
+**第 1 步：把生成的 SQL 和 `blog_posts` 的列定义并排看。**
+SQL 里 `created_at` / `updated_at` 被**显式列出并传了 NULL**，而 DDL 是
+`created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP`——显式 NULL 会盖掉 DEFAULT，
+所以触发 NOT NULL 违规。
+
+**第 2 步：为什么是显式 NULL，而不是被优化掉？**
+对照同一份 SQL 里的 `view_count / like_count / fav_count / is_top / embedding_status`——
+它们同样 `NOT NULL DEFAULT 0`，却**根本没出现在 INSERT 里**。
+jOOQ 的 `Tools.resetTouchedOnNotNull` 只会剔除「NOT NULL 且**从未被 set 过**」的字段；
+被 `setXxx(null)` 触碰过的字段会被当成"用户就是要写这个值"，原样写进 SQL。
+
+**第 3 步：谁 set 的？** 看 MapStruct 生成的 `PostMapperImpl`：
+`PostMapper` 的 `@Mapping(ignore = true)` 列表里有 `viewCount / likeCount / favCount /
+isTop / deletedAt / userId / contentHtml / tocHtml`——唯独**没有 `createdAt` / `updatedAt`**，
+于是生成了 `blogPostsRecord.setCreatedAt(postRequest.getCreatedAt())`，传入值是 null。
+
+### 根因
+
+`PostMapper` 漏 ignore `createdAt` / `updatedAt`，MapStruct 把 null 写进 Record，
+jOOQ 把"被 set 过的 null"当有效值送进 INSERT，显式 NULL 覆盖了 DB 默认值。
+与 `blog_users.username` 那次是**同一类坑**（映射层不该碰交给数据库维护的列）。
+
+### 修复
+
+`DTO/Mapper/PostMapper.java` 补两条 ignore：
+
+```java
+// created_at/updated_at 都是 NOT NULL + DEFAULT CURRENT_TIMESTAMP，且 updated_at 由
+// trg_posts_updated_at 维护。若映射进来会 setCreatedAt(null)——jOOQ 把「被 set 过的 null」
+// 当作已触碰字段写进 INSERT，显式 NULL 会盖掉默认值 → 违反 NOT NULL。同 blog_users.username 的坑。
+@Mapping(target = "createdAt", ignore = true)
+@Mapping(target = "updatedAt", ignore = true)
+```
+
+`blog_posts` 上有 `trg_posts_updated_at` 触发器，更新时间交给它即可，mapper 不必也不该管。
+
+### 验证
+
+`POST /api/posts` → 200，落库的 `created_at / updated_at` 由 DB 填入 `CURRENT_TIMESTAMP`。
+`mvn clean test` 通过。
+
+---
+
+## 2026-09-24 · 创建文章 500：`No JDBC Connection configured`
+
+### 现象
+
+`POST /api/posts` 返回 500，响应体 `{"code":401,"message":"Cannot execute query. No JDBC Connection configured"}`。
+（`code:401` 是 `GlobalExceptionHandler.handleRuntime` 硬编码的，与实际错误无关，见文末"未修"清单。）
+
+### 定位过程
+
+**第 1 步：看完整堆栈。** `jOOQ; SQL [insert into ...blog_posts...]` 上抛的是
+`DataAccessException`，说明 SQL 都没到 JDBC 就在 jOOQ 内部挂了。
+
+**第 2 步：区分"连接池没配"还是"这条记录没配"。**
+同一次请求里 `PostRepository` 的查询是能跑通的（`getPostAndCategory` 等都走注入的 `DSLContext`），
+说明 Spring 侧的 `DSLContext` 是好的——**问题出在这个 `BlogPostsRecord` 实例本身**。
+
+**第 3 步：看记录是谁造的。** `BlogPostService.createPost` 调
+`PostMapper.INSTANCE.postRequestToBlogPostsRecord(postRequest)`，
+而 `PostMapper` 是 `@Mapper` + `Mappers.getMapper(...)`（componentModel 为默认的 `default`）。
+翻 `target/generated-sources/.../PostMapperImpl.java`：
+
+```java
+BlogPostsRecord blogPostsRecord = new BlogPostsRecord();
+```
+
+**裸 `new` 出来的 Record 没有绑定 `Configuration`**，`record.insert()` 找不到连接。
+
+### 根因
+
+MapStruct 默认用无参构造器造 Record，而 jOOQ 的 `Record.insert()` 依赖实例上挂的
+`Configuration`（其中才有 DataSource / 事务绑定）。同样手 `new` 的 `BlogPostTagsRecord`
+也有这个问题，只是前一条先炸所以还没轮到它。
+
+### 修复
+
+`BlogPostService` 注入 `DSLContext`，对 MapStruct / 手 `new` 出来的两个 Record 各
+`attach` 一次（`org.jooq.Record` 实现了 `Attachable`）：
+
+```java
+blogPostsRecord.attach(dsl.configuration());
+blogPostsRecord.insert();
+...
+BlogPostTagsRecord blogPostTagsRecord = new BlogPostTagsRecord();
+blogPostTagsRecord.attach(dsl.configuration());   // 同上，否则第一条 tag 就 500
+```
+
+> 备选方案是把 insert 整体搬进已有 `DSLContext` 的 `PostRepository`，改动更大；
+> `attach` 是最小侵入的修法。
+
+### 验证
+
+`POST /api/posts` 越过 500（随后撞上 `created_at` 那个新问题，见上一条），
+修完 `created_at` 后 → 200。
+
+---
+
+## 2026-09-24 · 禁用账号仍能登录并拿到 access token
+
+### 现象
+
+`UPDATE blog_users SET status = 0` 后调 `POST /api/auth/login`，**返回 200 并签发了
+accessToken**。而 `docs/security-migration.md` §9 验收要求「禁用账号登录 → 403」。
+
+（同一轮里，用这张**已签发**的 token 调接口 → 正确返回 403 `ACCOUNT_DISABLED`，
+说明过滤器那半是好的，缺的是登录这半。）
+
+### 定位过程
+
+**第 1 步：确认过滤器已拦。** 带 token 调 `/api/auth/me` → 403 `{"code":403002}`，
+`JwtAuthenticationFilter` 第 95 行 `fail(request, ACCOUNT_DISABLED, "账号已被禁用")` 生效。
+→ 结论：P2-3 只做了一半。
+
+**第 2 步：读 `BlogUserService.login`。** 全方法只有一次判断：
+
+```java
+if (users == null || !bCryptPasswordEncoder.matches(blogUsers.getPassword(), users.getPassword())) {
+    throw new BusinessException(401, "用户名或密码错误");
+}
+```
+
+`status` 字段**从头到尾没被读过**，校验通过就直接 `generateToken(...)`。
+
+**第 3 步：确认不是"先发 token 再被拦"。** 返回体里确实带 accessToken 和 refreshToken
+Cookie，说明凭证真的发出去了——只是拿去调任何接口都会 403。
+
+### 根因
+
+`security-migration.md` §8 阶段 3.2 只写了「过滤器内加 `status == 1` 校验」，
+漏了「登录入口也要校验」；代码照文档执行，于是出现"token 发得出来但用不了"的半吊子状态。
+
+### 修复
+
+在密码校验**之后**、独立抛 403：
+
+```java
+// 禁用账号必须在密码校验**之后**单独抛 403：并进上面那行会被报成「用户名或密码错误」，
+// 前端无法区分「密码输错」和「账号被封」。此时密码已验证通过，泄露禁用状态是可接受的。
+if (users.getStatus() == null || users.getStatus() != STATUS_ACTIVE) {
+    throw new BusinessException(ErrorCode.ACCOUNT_DISABLED, "账号已被禁用");
+}
+```
+
+- 不能合并进密码那行：否则报「用户名或密码错误」，语义丢失；
+- 放在密码之后：避免未认证者靠 403 枚举出"该账号存在且已被封"；
+- `403002` 经 `GlobalExceptionHandler.toHttpStatus` → `403002/1000 = 403`。
+
+### 验证
+
+- 禁用后登录 → **403** `{"code":403002,"message":"账号已被禁用"}`
+- 已签发 token + 账号被禁用 → **403** `{"code":403002,...}`
+- 恢复 `status=1` → 登录 200、`/api/auth/me` 200
+
+---
+
+## 2026-09-24 · `/api/auth/refresh` 失败恒返回 HTTP 200，并泄漏 JJWT 内部消息
+
+### 现象
+
+`POST /api/auth/refresh` 无论怎么失败，HTTP 状态码都是 **200**：
+
+| 请求 | 期望 | 实际 |
+|---|---|---|
+| access token 当 refresh 用 | 401 | **200** `{"code":401001,...}` |
+| 不带 refreshToken cookie | 401 | **200** `{"code":401001,...}` |
+
+且 message 是 `"CharSequence cannot be null or empty."`——JJWT 内部的
+`Assert.hasText` 断言文案，直接漏给了前端。
+
+### 定位过程
+
+**第 1 步：`body.code` 是对的，只有 HTTP 状态错。** `code:401001`（TOKEN_EXPIRED）
+说明业务码传对了，问题在**响应是怎么发出去的**。
+
+**第 2 步：读 controller 的 catch 块。**
+
+```java
+} catch (RuntimeException e) {
+    clearRefreshTokenCookie(response);
+    return Result.error(ErrorCode.TOKEN_EXPIRED, e.getMessage());
+}
+```
+
+方法返回类型是 `Result<?>` 而非 `ResponseEntity`——`return Result.error(...)` 走的是
+正常成功路径，Spring MVC 默认就发 **HTTP 200**，状态码全靠 body 里的 `code` 表达。
+
+**第 3 步：为什么 message 是 JJWT 的内部文案。** `e.getMessage()` 直接透传，
+而 null token 会让 `Jwts.parser().parseSignedClaims(null)` 抛
+`IllegalArgumentException("CharSequence cannot be null or empty.")`。
+
+**第 4 步：对照验收清单。** `security-migration.md` §9 明确要求
+「HTTP 状态码分别是 401 / 403（**不是 200** 也不是 500）」和
+「拿 access token 调 `/api/auth/refresh` → 401（P0-2）」——两条都挂。
+
+### 根因
+
+异常被 catch 后降级成"成功返回一个带错误码的 Result"，绕过了
+`GlobalExceptionHandler.toHttpStatus` 的状态码映射；同时 `e.getMessage()`
+无差别透传，把框架实现细节暴露给客户端。
+
+### 修复
+
+改回**抛异常**，交给 `GlobalExceptionHandler` 映射状态码；并按异常类型给准确的业务码：
+
+```java
+} catch (RuntimeException e) {
+    clearRefreshTokenCookie(response);
+    log.debug("刷新令牌失败: {}", e.toString());
+    if (e instanceof ExpiredJwtException) {
+        throw new BusinessException(ErrorCode.TOKEN_EXPIRED, "Token 已过期，请刷新");
+    }
+    throw new BusinessException(ErrorCode.TOKEN_INVALID, "Token 无效，请重新登录");
+}
+```
+
+- `clearRefreshTokenCookie` 仍在 throw 之前调用，清 Cookie 的副作用保住；
+- 原方法里那段被注释掉的 null 判空（`refreshToken == null`）**保持注释状态未动**——
+  null 会一路走进 JJWT 抛异常，落到同一个 catch，行为等价且不擅自恢复已删代码；
+- 文案与 `JwtAuthenticationFilter` 对齐（`401002 → "Token 无效，请重新登录"`）。
+
+### 验证
+
+| 请求 | HTTP | 响应体 |
+|---|---|---|
+| access token 当 refresh cookie | **401** | `{"code":401002,"message":"Token 无效，请重新登录"}` |
+| 不带 cookie | **401** | `{"code":401002,"message":"Token 无效，请重新登录"}` |
+| 正常 refresh（带 cookie） | 200 | 正常签发新 access token |
+| refresh token 当 Bearer 调 `/api/auth/me` | 401 | `{"code":401002,...}` |
+
+JJWT 内部文案不再出现在任何响应里（只进 debug 日志）。
+
+---
+
+## 2026-09-23 · 注册接口 500：`null value in column "username"` 违反非空约束
+
+### 现象
+
+调用 `POST /api/auth/register` 注册新用户，后端抛异常：
+
+```
+org.postgresql.util.PSQLException: ERROR: null value in column "username"
+of relation "blog_users" violates not-null constraint
+详细：Failing row contains (7, null, syt, null, null,
+       https://api.dicebear.com/7.x/fun-emoji/svg?seed=avatar-05,
+       null, 1, null, null, null, null,
+       2026-09-23 09:13:24.794668, 2026-09-23 09:13:24.794668, USER).
+```
+
+关键信息：失败行里 **`username` 是 null，而 `nickname` 反而是 "syt"**；
+`password`、`email` 也都是 null；`status / created_at / updated_at / role` 有值。
+
+### 定位过程
+
+**第 1 步：从"哪些列有值"反推 INSERT 到底带了什么。**
+把失败行按 `blog_users` 的物理列顺序对齐：
+
+| 列 | 值 | 说明 |
+|---|---|---|
+| id | 7 | 自增，正常 |
+| username | **null** | 违反 NOT NULL |
+| nickname | `syt` | 有值 |
+| password | **null** | 也是 NOT NULL，但被 username 抢先报错 |
+| email | **null** | 也是 NOT NULL |
+| avatar | dicebear URL | 有值 |
+| status / created_at / updated_at / role | 1 / 时间 / 时间 / USER | **数据库默认值** |
+
+`status`、`created_at`、`updated_at`、`role` 这四列都取到了 DB 默认值，
+说明 jOOQ 的 DAO `insert` **会把值为 null 的字段整个从 INSERT 列表里省略**，
+而不是显式写 null —— 所以这一行就是"哪些字段没被赋值"的直接证据。
+结论：**有值的是 nickname / avatar，没值的是 username / password / email。**
+
+**第 2 步：反查这三个字段在哪被丢掉的。**
+全项目 `grep insert`，写 `blog_users` 的只有一处：`BlogUserService.register()`
+→ `blogUsersDao.insert(blogUsers)`。而它的入参来自 `BlogUserController.register()`：
+
+```java
+BlogUsers blogUsers = UserMapper.INSTANCE.userDTOToBlogUsers(UserRequest);
+```
+
+看 `UserMapper.userDTOToBlogUsers` 的注解，一眼就明白了：
+
+```java
+@Mapping(target = "username", ignore = true)
+@Mapping(target = "password", ignore = true)
+@Mapping(target = "email",    ignore = true)
+BlogUsers userDTOToBlogUsers(UserRequest userRequest);
+```
+
+这个方法本来是给 `PUT /api/auth/me`（**仅修改资料**）用的，
+它的语义就是"用户名/密码/邮箱不允许通过请求修改"。
+但 `register` 复用了它 → 注册时这三个字段全被置为 null，
+和"有值的是 nickname / avatar"完全吻合。**根因锁定。**
+
+**第 3 步：为什么没在更早的地方报错？（一个容易误判的点）**
+按常识 `bCryptPasswordEncoder.encode(null)` 应该抛
+`IllegalArgumentException: rawPassword cannot be null`，
+那样异常就会停在 Service 层、根本到不了数据库。但实际异常来自 PostgreSQL。
+查依赖发现项目用的是 **Spring Security 7.1.0**，
+`BCryptPasswordEncoder` 的 `encode` 已被提到父类
+`AbstractValidatingPasswordEncoder`，字节码里第一句就是：
+
+```java
+public final String encode(CharSequence rawPassword) {
+    if (rawPassword == null) return null;   // ← 7.x 起不再抛异常
+    return encodeNonNullPassword(rawPassword.toString());
+}
+```
+
+即 **`encode(null)` 现在静默返回 null**。
+于是 `setPassword(encode(null))` 把密码也写成了 null，
+异常被一路推迟到数据库层才爆出来，报错点离真正的错误点很远。
+
+**第 4 步：本地复现，确认不是猜测。**
+`curl` 打正在运行的 8081 实例：
+
+```bash
+curl -X POST http://localhost:8081/api/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"claude_debug_tmp","nickname":"claude_debug_tmp",
+       "password":"123456","email":"tmp@debug.local","avatar":"..."}'
+```
+
+返回 `{"code":400,"message":"标签名已存在"}` —— 复现成功，但**提示信息是错的**，
+暴露了第二个问题（见下）。
+
+### 根因
+
+1. **主因**：`register` 复用了为"仅修改资料"设计的 `userDTOToBlogUsers`，
+   而该方法 `ignore` 了 `username` / `password` / `email` 三个字段，
+   这三列在 `blog_users` 中都是 `NOT NULL` → INSERT 时插入 null → 违反非空约束。
+2. **放大因素**：Spring Security 7.1 的 `encode(null)` 返回 null 而不抛异常，
+   导致密码为 null 的问题没能被提前拦下，错误现场被推到数据库层。
+3. **掩盖因素**：`GlobalExceptionHandler` 把**所有** `DataIntegrityViolationException`
+   硬编码成 `"标签名已存在"`，注册失败时前端看到的是标签重名，误导排查方向。
+
+### 修复
+
+1. `UserMapper` 新增专用的注册映射，显式带上 `username / password / email`，
+   只忽略由 DB 默认值或服务层维护的字段：
+
+   ```java
+   @Mapping(target = "id",          ignore = true)
+   @Mapping(target = "status",      ignore = true)
+   @Mapping(target = "lastLoginAt", ignore = true)
+   @Mapping(target = "createdAt",   ignore = true)
+   @Mapping(target = "updatedAt",   ignore = true)
+   @Mapping(target = "role",        ignore = true)
+   BlogUsers register(UserRequest userRequest);
+   ```
+
+2. `BlogUserController.register()` 改用 `UserMapper.INSTANCE.register(...)`。
+   `PUT /me` 仍用 `userDTOToBlogUsers`，语义不变（用户名/密码/邮箱依旧不可改）。
+3. `GlobalExceptionHandler.handleDataIntegrity` 改为通用提示
+   `"数据冲突，请检查提交内容是否重复或缺失必填项"`，
+   重名这类有业务语义的场景由 Service 层用 `DuplicateNameException` 精确区分。
+
+### 验证
+
+```bash
+./mvnw -o compile                      # 通过
+# 起一个 8082 的独立实例验证，不动开发中的 8081
+curl -X POST http://localhost:8082/api/auth/register -d '{...}'
+# → 200 {"code":200,"data":{"user":{"id":9,"username":"claude_verify_01",
+#          "nickname":"验证账号","email":"verify01@debug.local", ...}}}
+curl -X POST http://localhost:8082/api/auth/login -d '{...}'
+# → 200，返回 accessToken，bcrypt 密码校验通过
+```
+
+> 验证用的临时账号 `claude_verify_01`（id=9）留在开发库里了，需要时手工删掉。
+
+### 遗留问题（本次未改，待确认）
+
+`UserRequest` 被 login / register / update 三个接口共用，但 `email` 上挂了 `@NotBlank`，
+导致 **登录接口也必须传 email** 才能过校验：
+
+```bash
+curl -X POST .../login -d '{"username":"...","password":"..."}'
+# → 400 "邮箱不能为空"
+```
+
+（带上 email 后登录正常，见上面的验证。）
+修法有两种：① 把 login 的校验规则从共用 DTO 里拆出去（如恢复独立的 `LoginRequest`）；
+② 共享 DTO 去掉 `@NotBlank`，把"注册必须有邮箱"挪到 Service 层校验。
+
+---
+
+## 2026-09-23 · 编译全量报错 307 处：Lombok / MapStruct 静默失效
+
+### 现象
+
+`./mvnw compile` 首次执行失败，报 **307 个编译错误**，集中在 10 个文件：
+
+```
+GlobalExceptionHandler.java   Result.java        JwtInterceptor.java
+OssUtil.java                  PostRepository.java CategoryRepository.java
+TagRepository.java            BlogPostService.java BlogTagService.java
+BlogUserService.java
+```
+
+错误形态高度一致，全是「找不到符号」：
+
+```
+BlogTagService.java:[49,9]  找不到符号  变量 log
+PostResponse.java           找不到符号  方法 setStatus(short)
+PageResult                  无法将构造器应用到给定类型  需要: 没有参数
+```
+
+### 定位过程
+
+**第 1 步：排除 jOOQ 嫌疑。**
+本次改动涉及 jOOQ codegen，需先确认不是它引入的。检查全部错误 → **没有一条是"找不到 jOOQ 类"**，所有 jOOQ import 均正常解析。jOOQ 排除。
+
+**第 2 步：发现"注解处理器没跑"的特征。**
+抽查源码，`BlogTagService` 明明写了 `@Slf4j`，`PageResult` 明明写了 `@AllArgsConstructor`，但 `log` 和 5 参构造器都"找不到"。
+→ 这不是代码写错，是**注解处理器根本没执行**。
+
+**第 3 步：排除版本不兼容。**
+```
+Lombok 解析版本 = 1.18.46   （支持 JDK 25，无问题）
+JDK 版本        = 25.0.4.1
+```
+版本没问题，那问题只可能出在"处理器有没有被调用"。
+
+**第 4 步：一行命令坐实根因。**
+```bash
+./mvnw clean compile -DskipTests -Dmaven.compiler.proc=full
+# 错误数：307 → 0
+```
+强制开启注解处理后构建直接通过。**根因确认。**
+
+### 根因
+
+> **JDK 23 起，`javac` 不再自动运行仅存在于 classpath 上的注解处理器。**
+> 本项目使用 **JDK 25**，而 `pom.xml` 中没有任何 `annotationProcessorPaths` 配置，
+> 因此 Lombok 与 MapStruct **静默失效**（不报错、不警告），
+> 直接表现为所有 Lombok 生成的成员（`log` / getter / setter / 构造器）全部"找不到"。
+
+### 修复
+
+在 `pom.xml` 的 `<build><plugins>` 中新增 `maven-compiler-plugin` 配置：
+
+```xml
+<plugin>
+    <groupId>org.apache.maven.plugins</groupId>
+    <artifactId>maven-compiler-plugin</artifactId>
+    <configuration>
+        <annotationProcessorPaths>
+            <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </path>
+            <path>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok-mapstruct-binding</artifactId>
+                <version>0.2.0</version>
+            </path>
+            <path>
+                <groupId>org.mapstruct</groupId>
+                <artifactId>mapstruct-processor</artifactId>
+                <version>1.5.3.Final</version>
+            </path>
+        </annotationProcessorPaths>
+    </configuration>
+</plugin>
+```
+
+> 说明：显式声明 `annotationProcessorPaths` 后，classpath 自动发现机制即被取代，
+> 因此 **Lombok、MapStruct 必须全部列出**，缺一会导致对应框架失效。
+> `lombok-mapstruct-binding` 用于保证 MapStruct 在 Lombok **之后**运行，
+> 否则 MapStruct 编译期看不到 Lombok 生成的 getter/setter，映射会静默丢字段。
+
+### 验证
+
+```bash
+./mvnw clean compile -DskipTests
+# BUILD SUCCESS   Total time: 21.405 s   错误数: 0
+```
+
+并确认三件事**真的发生了**（而非 javac 放弃处理）：
+
+| 验证项 | 命令 | 结果 |
+|---|---|---|
+| MapStruct 生成实现类 | `find target/classes -name "*MapperImpl.class"` | ✅ 4 个：Post/Tag/User/CategoryMapperImpl |
+| Lombok 生成 getter/setter | `javap -p -cp target/classes ...PostResponse` | ✅ `getStatus()` / `setStatus()` / `getReadingTime()` |
+| jOOQ 新表新字段 | `javap -p -cp target/classes ...BlogPosts` | ✅ `EMBEDDING_STATUS` / `ROLE` / `BlogPostEmbeddings` |
+
+### 附带教训
+
+⚠️ **首次执行 `./mvnw compile` 时曾返回 `EXIT=0`，但那是假成功。**
+Maven 增量编译误判"无需重编"而跳过，掩盖了真实错误。
+**只有 `clean compile` 的结果才可信**，排查编译问题一律先 `clean`。
+
+---
+
+## 2026-09-23 · jOOQ codegen 长期失败，`target/generated-sources` 为过期代码
+
+### 现象
+
+执行 `./mvnw generate-sources` 直接报错：
+
+```
+[ERROR] Unable to parse configuration of mojo org.jooq:jooq-codegen-maven:3.21.8:generate
+        for parameter interfaceOnly:
+        Cannot find 'interfaceOnly' in class org.jooq.meta.jaxb.Generate
+```
+
+### 根因
+
+`pom.xml` 中使用了 `<interfaceOnly>true</interfaceOnly>`，
+但 **jOOQ 的 `org.jooq.meta.jaxb.Generate` 类中根本没有 `interfaceOnly` 这个字段**，
+该参数不合法，导致 codegen 阶段直接中断。
+
+**影响面比报错本身更大**：由于 codegen 从未成功执行，
+`target/generated-sources/jooq` 中一直是**早期生成的过期代码**，
+与真实数据库结构脱节。
+
+> 这直接导致了一次误判：上一轮评审时依据过期生成代码，
+> 认为「`blog_posts.status` 默认值为 2，疑似笔误」，
+> 而 `pg_dump` 核对真实库结构后发现**实际就是 `DEFAULT 0`，完全正确**。
+> 详见 `database-review.md` 的 P2-1（已标记为排除）。
+
+### 修复
+
+```xml
+<!-- 修改前 -->
+<interfaceOnly>true</interfaceOnly>
+
+<!-- 修改后：jOOQ 无 interfaceOnly 参数，正确项为 interfaces -->
+<interfaces>true</interfaces>
+```
+
+### 验证
+
+```bash
+./mvnw generate-sources -DskipTests
+# EXIT=0
+```
+生成物核对：
+- `BlogPostEmbeddings.java`（新表）
+- `BlogPosts.EMBEDDING_STATUS`（新字段）
+- `BlogUsers.ROLE`（新字段）
+- `BlogAiMessages.sources`（新字段）
+
+---
+
+## 2026-09-23 · 数据库迁移：旧库 → pgvector 容器
+
+> 非 bug，属于环境搭建，一并记录备查。
+
+### 背景
+
+RAG 闭环需要 `vector` 扩展，旧容器 `postgres:latest` 不含 pgvector。
+新容器 `pgvector/pgvector:pg18-trixie`（容器名 `pgvector-db`，宿主机端口 **5433**）启动时是**空库**。
+
+### 处理
+
+1. 从旧容器（`competent_bartik`，5432）`pg_dump` 全量导出
+2. 恢复到 `pgvector-db`（5433）→ **22 张表 + 数据完整**（1 用户 / 11 文章 / 18 标签 / 25 关联 / 16 令牌）
+3. 执行 `supplementary-schema.sql`：启用 `vector` 0.8.6、建 `blog_post_embeddings` + HNSW 索引、
+   加 `posts.embedding_status` / `users.role` / `ai_messages.sources`、统一日志表 `user_id` 类型
+4. 配置指向新库：`application-dev.yaml` 与 `pom.xml` codegen 均改为 **5433**
+5. 备份留存：`docs/_backup-old-db-5432.sql`
+
+### 遗留
+
+- 新发现 **5 组重复唯一索引**（详见 `database-review.md` P3-4），清理语句已在
+  `supplementary-schema.sql` 中以**注释态**备好，待确认后执行。

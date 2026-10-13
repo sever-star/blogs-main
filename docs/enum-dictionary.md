@@ -1,0 +1,115 @@
+# 状态枚举统一字典 · blog 系统
+
+> 版本：v1.0　|　日期：2026-09-22
+> 用途：统一全库 SMALLINT/INTEGER 状态字段的取值语义，供 Service / Mapper / 前端共用
+> 标注：✅=已能从默认值推断　⚠️=需你确认后定稿
+
+---
+
+## 0. 统一约定（建议全库遵守）
+
+| 类别 | 取值 |
+|---|---|
+| **是否类**（is_*/allow_*/revoked） | `0 = 否`，`1 = 是` |
+| **启用状态** | `0 = 禁用`，`1 = 启用` |
+| **审核状态** | `0 = 待审核`，`1 = 通过`，`2 = 拒绝` |
+| **发布状态** | `0 = 草稿`，`1 = 已发布`，`2 = 已下架` |
+
+---
+
+## 1. 是否类布尔标志（0/1）
+
+| 表 | 字段 | 默认 | 语义 | 确认 |
+|---|---|---|---|---|
+| blog_posts | is_top | 0 | 0=不置顶 / 1=置顶 | ✅ |
+| blog_posts | allow_comment | 1 | 0=禁评 / 1=允许评论 | ✅ |
+| blog_comments | is_admin | 0 | 0=普通 / 1=博主回复 | ✅ |
+| blog_user_settings | comment_notify | — | 0=关 / 1=开 | ✅ |
+| blog_user_settings | like_notify | — | 0=关 / 1=开 | ✅ |
+| blog_user_settings | email_notify | — | 0=关 / 1=开 | ✅ |
+| blog_notifications | is_read | 0 | 0=未读 / 1=已读 | ✅ |
+| blog_refresh_tokens | revoked | 0 | 0=有效 / 1=已吊销 | ✅ |
+
+---
+
+## 2. 多态状态枚举
+
+### 2.1 blog_posts.status　✅（默认 0）
+
+| 值 | 语义 |
+|---|---|
+| 0 | 草稿（DRAFT） |
+| 1 | 已发布（PUBLISHED） |
+| 2 | 已下架（OFFLINE） |
+
+> 已确认：默认值 **0（草稿）**。经 `pg_dump` 核对实际库结构，`blog_posts.status` 本就是 `DEFAULT 0`，无需 ALTER；此前"默认 2"的说法来自 `target/generated-sources` 里过期的 jOOQ 生成代码，非真实库结构。
+
+### 2.2 blog_posts.embedding_status（新增，见 P0-3）
+
+| 值 | 语义 |
+|---|---|
+| 0 | 待处理（PENDING） |
+| 1 | 已完成（READY） |
+| 2 | 失败（FAILED，可重试） |
+
+### 2.3 blog_users.status　✅（默认 1）
+
+| 值 | 建议语义 |
+|---|---|
+| 0 | 禁用 |
+| 1 | 正常 |
+
+### 2.4 blog_comments.status　✅（默认 0）
+
+| 值 | 建议语义 |
+|---|---|
+| 0 | 待审核（PENDING） |
+| 1 | 已通过（APPROVED） |
+| 2 | 已拒绝（REJECTED） |
+
+### 2.5 blog_ai_messages.status　✅（默认 1）
+
+| 值 | 建议语义 |
+|---|---|
+| 0 | 失败 |
+| 1 | 成功 |
+| 2 | 生成中（流式中断） |
+
+### 2.6 blog_scheduled_posts.status　✅（默认 0）
+
+| 值 | 语义 |
+|---|---|
+| 0 | 待发布 |
+| 1 | 已发布 |
+| 2 | 已取消 |
+
+### 2.7 blog_login_logs.status　✅（默认 1）
+
+| 值 | 语义 |
+|---|---|
+| 0 | 失败 |
+| 1 | 成功 |
+
+### 2.8 blog_login_logs.login_type　✅（默认 1）
+
+| 值 | 语义 |
+|---|---|
+| 0 | 账号密码 |
+| 1 | 第三方 / OAuth |
+
+> 说明：默认值 `1` 即默认记录为第三方登录；若业务以账号密码为主，插入日志时显式传 `0` 即可，不影响字段语义。
+
+### 2.9 blog_links.status　✅（默认 1）
+
+| 值 | 语义 |
+|---|---|
+| 0 | 禁用 |
+| 1 | 启用 |
+
+---
+
+## 3. 定稿状态
+
+✅ **全部枚举已定稿**，无遗留待确认项。
+
+> 建议在代码层建一个 `StatusEnum` / `常量类` 统一引用，避免 Service 里散落魔法数字。
