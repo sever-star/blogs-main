@@ -27,6 +27,11 @@ public class GlobalExceptionHandler {
         return ResponseEntity.status(toHttpStatus(e.getCode()))
                 .body(Result.error(e.getCode(), e.getMessage()));
     }
+    @ExceptionHandler(RuntimeException.class)
+    public ResponseEntity<Result<Void>> handleRuntime(RuntimeException e){
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Result.error(401, e.getMessage()));
+    }
 
     /**
      * 将业务码映射为合法 HTTP 状态码。
@@ -53,12 +58,16 @@ public class GlobalExceptionHandler {
                 .body(Result.error(400, e.getMessage()));
     }
 
-    /** 并发撞唯一约束 → 400，DB 兜底 */
+    /**
+     * 并发撞唯一约束 / 违反 NOT NULL 等完整性约束 → 400，DB 兜底。
+     * 这里只能给通用提示：唯一约束的业务语义（分类重名？标签重名？用户名占用？）
+     * 由各 Service 在插入前用 DuplicateNameException 精确区分。
+     */
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<Result<Void>> handleDataIntegrity(DataIntegrityViolationException e) {
         log.warn("数据完整性冲突", e);
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                .body(Result.error(400, "标签名已存在"));
+                .body(Result.error(400, "数据冲突，请检查提交内容是否重复或缺失必填项"));
     }
 
     /** 兜底 → 500，不向用户暴露堆栈 */

@@ -45,6 +45,9 @@ public class UserResponse {
     /**账户状态*/
     private Integer status;
 
+    /** 角色：ADMIN=管理员，USER=普通用户 */
+    private String role;
+
     /** 最后登录时间 */
     private LocalDateTime lastLoginAt;
     /** 创建时间 */

@@ -2,6 +2,7 @@ package com.syt.blog.util;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -80,6 +81,11 @@ public class JwtUtils {
     }
     // ==================== 解析 Token ====================
 
+    /** access token 的 type 声明值 */
+    private static final String TYPE_ACCESS = "access";
+    /** refresh token 的 type 声明值 */
+    private static final String TYPE_REFRESH = "refresh";
+
     /**
      * 解析 Token，获取声明信息
      *
@@ -95,23 +101,59 @@ public class JwtUtils {
     }
 
     /**
-     * 从 Token 中获取用户 ID
+     * 解析并校验 token 类型。
+     * <p>
+     * access 与 refresh 两种 token 结构完全相同、同一密钥签名，唯一区别就是 {@code type} claim。
+     * 不校验的话：refresh token 能当 Bearer 调业务接口（7 天有效期绕过 15 分钟设计），
+     * access token 也能拿到刷新端点。类型校验必须绑在解析这一步，
+     * 而不是靠调用方「记得去查」——后者一定会漏。
      *
-     * @param token JWT 字符串
-     * @return 用户 ID
+     * @throws io.jsonwebtoken.JwtException 签名无效、已过期、或类型不匹配
      */
-    public Integer getUserIdFromToken(String token) {
-        return Integer.parseInt(parseToken(token).getSubject());
+    private Claims parseTokenWithExpectedType(String token, String expectedType) {
+        Claims claims = parseToken(token);
+        String actual = claims.get("type", String.class);
+        if (!expectedType.equals(actual)) {
+            throw new MalformedJwtException(
+                    "Token 类型不匹配，期望 [" + expectedType + "]，实际 [" + actual + "]");
+        }
+        return claims;
     }
 
     /**
-     * 从 Token 中获取用户名
+     * 解析 **access** token 取用户 ID。调用方：JWT 认证过滤器。
      *
-     * @param token JWT 字符串
-     * @return 用户名
+     * @throws io.jsonwebtoken.JwtException token 无效、过期，或实际是 refresh token
      */
-    public String getUsernameFromToken(String token) {
-        return parseToken(token).get("username", String.class);
+    public Integer getUserIdFromAccessToken(String token) {
+        return Integer.parseInt(parseTokenWithExpectedType(token, TYPE_ACCESS).getSubject());
+    }
+
+    /**
+     * 解析 **access** token 取用户名。
+     *
+     * @throws io.jsonwebtoken.JwtException token 无效、过期，或实际是 refresh token
+     */
+    public String getUsernameFromAccessToken(String token) {
+        return parseTokenWithExpectedType(token, TYPE_ACCESS).get("username", String.class);
+    }
+
+    /**
+     * 解析 **refresh** token 取用户 ID。调用方：刷新端点（refresh token 走 Cookie，不走 Header）。
+     *
+     * @throws io.jsonwebtoken.JwtException token 无效、过期，或实际是 access token
+     */
+    public Integer getUserIdFromRefreshToken(String token) {
+        return Integer.parseInt(parseTokenWithExpectedType(token, TYPE_REFRESH).getSubject());
+    }
+
+    /**
+     * 解析 **refresh** token 取用户名。
+     *
+     * @throws io.jsonwebtoken.JwtException token 无效、过期，或实际是 access token
+     */
+    public String getUsernameFromRefreshToken(String token) {
+        return parseTokenWithExpectedType(token, TYPE_REFRESH).get("username", String.class);
     }
 
     // ==================== 验证 Token ====================

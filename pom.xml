@@ -69,6 +69,7 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- MapStruct：用于对象映射（POJO 到 DTO） -->
         <dependency>
             <groupId>org.mapstruct</groupId>
             <artifactId>mapstruct</artifactId>
@@ -115,13 +116,23 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-        <!-- 仅引入 BCryptPasswordEncoder（密码哈希），不触发 Spring Security 的 SecurityFilterChain 自动配置。
-             本项目鉴权由 JwtInterceptor（config/WebConfig）实现，无需 spring-boot-starter-security，
-             后者会默认对所有 URL 启用 HTTP Basic + CSRF，在 DispatcherServlet 之前拦截请求，
-             导致跨域响应不带 Access-Control-Allow-Origin 而被浏览器误报为 CORS 错误。 -->
+<!--        &lt;!&ndash; 仅引入 BCryptPasswordEncoder（密码哈希），不触发 Spring Security 的 SecurityFilterChain 自动配置。-->
+<!--             本项目鉴权由 JwtInterceptor（config/WebConfig）实现，无需 spring-boot-starter-security，-->
+<!--             后者会默认对所有 URL 启用 HTTP Basic + CSRF，在 DispatcherServlet 之前拦截请求，-->
+<!--             导致跨域响应不带 Access-Control-Allow-Origin 而被浏览器误报为 CORS 错误。 &ndash;&gt;-->
+<!--        <dependency>-->
+<!--            <groupId>org.springframework.security</groupId>-->
+<!--            <artifactId>spring-security-crypto</artifactId>-->
+<!--        </dependency>-->
         <dependency>
-            <groupId>org.springframework.security</groupId>
-            <artifactId>spring-security-crypto</artifactId>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-security</artifactId>
+        </dependency>
+
+        <!-- Redis：用于缓存数据，提高应用性能 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
     </dependencies>
 
@@ -129,6 +140,35 @@
 
     <build>
         <plugins>
+            <!-- 注解处理器显式配置。
+                 JDK 23 起 javac 不再自动运行仅存在于 classpath 上的注解处理器，
+                 本项目用 JDK 25，若不显式声明，Lombok / MapStruct 会静默失效，
+                 表现为大量「找不到符号 log / getXxx / setXxx / 构造器」编译错误。
+                 lombok-mapstruct-binding 保证 MapStruct 在 Lombok 之后运行。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>0.2.0</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>1.5.3.Final</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
@@ -152,7 +192,7 @@
                     <!-- 数据库连接信息 -->
                     <jdbc>
                         <driver>org.postgresql.Driver</driver>
-                        <url>jdbc:postgresql://localhost:5432/postgres</url>
+                        <url>jdbc:postgresql://localhost:5433/postgres</url>
                         <user>postgres</user>
                         <password>123456</password>
                     </jdbc>
@@ -172,7 +212,8 @@
                         </target>
                         <generate>
 
-                            <interfaceOnly>true</interfaceOnly>
+                            <!-- 为 DAO 生成接口（jOOQ 无 interfaceOnly 参数，正确项为 interfaces） -->
+                            <interfaces>true</interfaces>
                             <!-- 关键：开启 DAO 类生成 -->
                             <daos>true</daos>
 

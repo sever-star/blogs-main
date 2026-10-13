@@ -2,9 +2,12 @@ package com.syt.blog.controller;
 
 
 import com.syt.blog.DTO.Response.LoginResponse;
+import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
-import com.syt.blog.DTO.Request.UserRequest;
+import com.syt.blog.DTO.Request.LoginRequest;
+import com.syt.blog.DTO.Request.RegisterRequest;
+import com.syt.blog.DTO.Request.UpdateProfileRequest;
 import com.syt.blog.jooq.tables.pojos.BlogUsers;
 import com.syt.blog.DTO.Mapper.UserMapper;
 import com.syt.blog.service.BlogUserService;
@@ -14,11 +17,14 @@ import com.syt.blog.DTO.Response.UserResponse;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import io.jsonwebtoken.ExpiredJwtException;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+@Slf4j
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/auth")
@@ -35,39 +41,43 @@ public class BlogUserController {
      * 登录
      */
     @PostMapping("/login")
-    public Result<LoginResponse> login(@RequestBody @Valid UserRequest userRequest,
+    public Result<LoginResponse> login(@RequestBody @Valid LoginRequest loginRequest,
                                        HttpServletRequest request,
                                        HttpServletResponse response) {
-        BlogUsers blogUsers = UserMapper.INSTANCE.Login(userRequest);
+        BlogUsers blogUsers = UserMapper.INSTANCE.login(loginRequest);
         LoginResponse loginResponse=blogUserService.login(blogUsers, request,response);
         return Result.success(loginResponse);
     }
 
     /**
      * 获取当前用户信息
+     * <p>
+     * 身份来自 SecurityContext，不再读 Authorization 头——该路径已声明 authenticated()，
+     * 无 token 的请求在过滤器链里就被 EntryPoint 挡下了。
      */
     @GetMapping("/me")
-    public Result<UserResponse> me(@RequestHeader("Authorization") String authorization) {
-        UserResponse userResponse = blogUserService.getUser(authorization);
+    public Result<UserResponse> me() {
+        UserResponse userResponse = blogUserService.getUser();
         return Result.success(userResponse);
     }
+
+
 
     /**
      * 更新用户信息
      */
     @PutMapping("/me")
-        public Result<UserResponse> update(@RequestHeader("Authorization") String authorization,
-                                           @RequestBody @Valid UserRequest userRequest) {
-        BlogUsers blogUsers = UserMapper.INSTANCE.userDTOToBlogUsers(userRequest);
-        UserResponse updatedUser = blogUserService.update(authorization, blogUsers);
+    public Result<UserResponse> update(@RequestBody @Valid UpdateProfileRequest updateProfileRequest) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.updateProfile(updateProfileRequest);
+        UserResponse updatedUser = blogUserService.update(blogUsers);
         return Result.success(updatedUser);
     }
     /**
      * 注册
      */
     @PostMapping("/register")
-    public Result<LoginResponse> register(@RequestBody @Valid UserRequest UserRequest) {
-        BlogUsers blogUsers = UserMapper.INSTANCE.userDTOToBlogUsers(UserRequest);
+    public Result<LoginResponse> register(@RequestBody @Valid RegisterRequest registerRequest) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.register(registerRequest);
         LoginResponse loginResponse = blogUserService.register(blogUsers);
         return Result.success(loginResponse);
 
@@ -80,19 +90,21 @@ public class BlogUserController {
     public Result<?> refresh(@CookieValue(name = "refreshToken", required = false) String refreshToken,
                              HttpServletRequest request,
                              HttpServletResponse response) {
-        if (refreshToken == null || refreshToken.isEmpty()) {
-            return Result.error(ErrorCode.TOKEN_EXPIRED, "Refresh token 不存在，请重新登录");
-        }
+//        if (refreshToken == null || refreshToken.isEmpty()) {
+//            return Result.error(ErrorCode.TOKEN_EXPIRED, "Refresh token 不存在，请重新登录");
+//        }
 
         try {
-            //RefreshToken rt = refreshTokenService.verifyRefreshToken(refreshToken);
-            Integer userId = jwtUtils.getUserIdFromToken(refreshToken);
-            String username = jwtUtils.getUsernameFromToken(refreshToken);
+            // 必须用 refresh 类型的解析方法：否则一张 access token 也能换出新 token，
+            // 等于把 15 分钟的凭证续期成 7 天（见 docs/security-migration.md §3）
+            Integer userId = jwtUtils.getUserIdFromRefreshToken(refreshToken);
+            String username = jwtUtils.getUsernameFromRefreshToken(refreshToken);
 
             refreshTokenService.revokeRefreshToken(refreshToken);
 
             String newAccessToken = jwtUtils.generateToken(userId, username);
             String newRefreshToken = jwtUtils.generateRefreshToken(userId, username);
+
 
             String userAgent = request.getHeader("User-Agent");
             String ip = request.getHeader("X-Forwarded-For");
@@ -106,7 +118,15 @@ public class BlogUserController {
             return Result.success(new AccessTokenDTO(newAccessToken));
         } catch (RuntimeException e) {
             clearRefreshTokenCookie(response);
-            return Result.error(ErrorCode.TOKEN_EXPIRED, e.getMessage());
+            // 必须抛异常，不能 return Result.error(...)：后者以 HTTP 200 返回，
+            // 前端只能靠 body 判断成败，违背 docs/security-migration.md §9 的状态码约定。
+            // 也不透传 e.getMessage()：JJWT 会抛 "CharSequence cannot be null or empty."
+            // 这类实现细节，对用户没有意义，只在 debug 日志里留一份。
+            log.debug("刷新令牌失败: {}", e.toString());
+            if (e instanceof ExpiredJwtException) {
+                throw new BusinessException(ErrorCode.TOKEN_EXPIRED, "Token 已过期，请刷新");
+            }
+            throw new BusinessException(ErrorCode.TOKEN_INVALID, "Token 无效，请重新登录");
         }
     }
 

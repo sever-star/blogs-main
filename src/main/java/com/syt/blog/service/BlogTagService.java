@@ -6,12 +6,19 @@ import com.syt.blog.common.DuplicateNameException;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.ResourceNotFoundException;
 import com.syt.blog.DTO.Request.TagRequest;
+import com.syt.blog.jooq.tables.daos.BlogPostTagsDao;
 import com.syt.blog.jooq.tables.daos.BlogTagsDao;
+import com.syt.blog.jooq.tables.pojos.BlogPostTags;
 import com.syt.blog.jooq.tables.pojos.BlogTags;
+import com.syt.blog.jooq.tables.records.BlogPostTagsRecord;
+import com.syt.blog.repository.PostRepository;
 import com.syt.blog.repository.TagRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.jooq.DSLContext;
+import org.jooq.Table;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -25,6 +32,7 @@ public class BlogTagService {
 
     private final TagRepository tagRepository;
     private final BlogTagsDao blogTagsDao;
+    private final BlogPostTagsDao blogPostTagsDao;
     private final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     /**
@@ -132,7 +140,11 @@ public class BlogTagService {
         if (blogTag == null) {
             throw new ResourceNotFoundException("标签不存在");
         }
-        blogTagsDao.deleteById(id);
-        // TODO 删除标签需要清除和文章之间的关联
+        List<BlogPostTags> blogPostTags = blogPostTagsDao.fetchByPostId(id);
+        log.info("关联文章{}", blogPostTags);
+        if (!blogPostTags.isEmpty()) {
+            throw new RuntimeException("标签下有文章，请先删除文章");
+        }
+        blogTagsDao.delete(blogTag);
     }
 }

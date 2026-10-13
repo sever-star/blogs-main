@@ -20,11 +20,23 @@ public class BlogFileController {
     private final BlogFileService blogFileService;
 
     @PostMapping("/avatar")
-    public Result<UploadResult> uploadFile(@RequestHeader("Authorization") String authorization, @RequestParam("file") MultipartFile file) {
+    public Result<UploadResult> uploadFile(@RequestParam("file") MultipartFile file) {
         String url;
         try {
             url=blogFileService.uploadFile(file);
         }catch (Exception e){
+            return Result.error(ErrorCode.AUTH_FAILED, e.getMessage());
+        }
+        return Result.success(new UploadResult(url));
+    }
+
+    /** 文章封面上传：SecurityConfig 中 POST /api/upload/** 落到 anyRequest().authenticated()，登录即可 */
+    @PostMapping("/cover")
+    public Result<UploadResult> uploadCover(@RequestParam("file") MultipartFile file) {
+        String url;
+        try {
+            url = blogFileService.uploadCover(file);
+        } catch (Exception e) {
             return Result.error(ErrorCode.AUTH_FAILED, e.getMessage());
         }
         return Result.success(new UploadResult(url));

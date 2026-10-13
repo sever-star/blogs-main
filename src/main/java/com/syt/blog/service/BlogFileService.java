@@ -16,4 +16,11 @@ public class BlogFileService {
     public String uploadFile(MultipartFile file) {
         return ossUtil.uploadImage(file, "avatar");
     }
+
+    /**
+     * 上传文章封面图（存 OSS 的 cover 目录，与头像分开）
+     */
+    public String uploadCover(MultipartFile file) {
+        return ossUtil.uploadImage(file, "cover");
+    }
 }

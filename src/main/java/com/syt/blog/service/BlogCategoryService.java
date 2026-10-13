@@ -6,8 +6,11 @@ import com.syt.blog.common.DuplicateNameException;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.ResourceNotFoundException;
 import com.syt.blog.jooq.tables.daos.BlogCategoriesDao;
+import com.syt.blog.jooq.tables.daos.BlogPostsDao;
 import com.syt.blog.jooq.tables.pojos.BlogCategories;
+import com.syt.blog.jooq.tables.pojos.BlogPosts;
 import com.syt.blog.repository.CategoryRepository;
+import com.syt.blog.repository.PostRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,11 +25,14 @@ public class BlogCategoryService {
 
     private final CategoryRepository categoryRepository;
     private final BlogCategoriesDao blogCategoriesDao;
+    private final PostRepository postRepository;
 
-    public BlogCategoryService(CategoryRepository categoryRepository, BlogCategoriesDao blogCategoriesDao) {
+    public BlogCategoryService(CategoryRepository categoryRepository, BlogCategoriesDao blogCategoriesDao, BlogPostsDao blogPostsDao, PostRepository postRepository) {
         this.categoryRepository = categoryRepository;
         this.blogCategoriesDao = blogCategoriesDao;
 
+
+        this.postRepository = postRepository;
     }
 
     @Transactional
@@ -124,5 +130,6 @@ public class BlogCategoryService {
             throw new ResourceNotFoundException("分类不存在，ID: " + id);
         }
         blogCategoriesDao.deleteById(id);
+        postRepository.deleteByCategoryId(id);
     }
 }
