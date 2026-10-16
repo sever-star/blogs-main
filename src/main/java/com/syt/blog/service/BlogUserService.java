@@ -24,6 +24,7 @@ import org.springframework.stereotype.Service;
 
 import java.sql.SQLDataException;
 import java.util.List;
+import java.util.Map;
 
 
 @Service
@@ -253,7 +254,19 @@ public class BlogUserService {
         log.info("管理员 {} 将用户 {} 的状态改为 {}", SecurityUtils.currentUserId(), id, status);
         return UserMapper.INSTANCE.BlogUsersToUserResponse(existing);
     }
-
+    /***？
+     *
+     * @param id 目标用户 ID
+     * @return 重置后的密码
+     */
+    @Transactional
+    public Map<String, String> resetPassword(Integer id) {
+        BlogUsers existing =requireUser(id);
+        existing.setPassword(bCryptPasswordEncoder.encode("123456"));
+        blogUsersDao.update(existing);
+        log.info("管理员 {} 将用户 {} 的密码重置为 {}", SecurityUtils.currentUserId(), id, "123456");
+        return Map.of("message", "123456");
+    }
     /** 取目标用户，不存在抛 404 */
     private BlogUsers requireUser(Integer id) {
         BlogUsers existing = userRepository.findById(id);
@@ -269,6 +282,7 @@ public class BlogUserService {
         }
         clearRefreshTokenCookie(response);
     }
+
     /**
      * 清除刷新令牌 cookie
      *
@@ -298,4 +312,6 @@ public class BlogUserService {
         cookie.setMaxAge((int) (maxAgeMs / 1000));
         response.addCookie(cookie);
     }
+
+
 }

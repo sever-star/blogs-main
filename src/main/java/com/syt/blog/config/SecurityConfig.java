@@ -93,6 +93,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/categories", "/api/categories/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/tags", "/api/tags/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/api/posts/*/comments").permitAll()
 
                         // ── 公开：AI 助手对游客开放，成本控制靠 AiRateLimiter 按 IP 限流 ──
                         // 会话归属由 resolveOwner 决定：登录归用户，未登录按 IP
@@ -116,6 +117,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/posts/*/like").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/posts/*/like").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/posts/**").authenticated()
+                        //评论对所有登录用户开放
+                        .requestMatchers(HttpMethod.POST, "/api/posts/*/comments").authenticated()
                         // ── 需博主/管理员 ──────────────────────────────────────────
                         // 用 hasAuthority 而非 hasRole：后者会自动加 ROLE_ 前缀，
                         // 而 blog_users.role 存的就是 ADMIN，用 hasRole 会永远拒绝
@@ -130,6 +133,7 @@ public class SecurityConfig {
                         // 用户管理：GET 也拦——列表含邮箱等信息，不能放开给普通登录用户
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/users/**").hasAuthority("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/users/*/reset-password").hasAuthority("ADMIN")
 
                         // 兜底：没被上面任何一条覆盖的路径一律要登录
                         .anyRequest().authenticated()

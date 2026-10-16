@@ -8,13 +8,9 @@ import com.syt.blog.common.Result;
 import com.syt.blog.service.BlogUserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 /**
  * 用户管理（仅管理员）：分页查用户、改角色、启用/禁用。
@@ -59,5 +55,11 @@ public class BlogUserManageController {
                                                  @Valid @RequestBody UpdateUserStatusRequest request) {
         UserResponse user = blogUserService.updateStatus(id, request.getStatus());
         return Result.success(user);
+    }
+
+    @PostMapping("/{id}/reset-password")
+    public Result<Map<String, String>> resetPassword(@PathVariable Integer id) {
+        Map<String,String> result = blogUserService.resetPassword(id);
+        return Result.success(result);
     }
 }

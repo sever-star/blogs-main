@@ -72,6 +72,7 @@ public class BlogUserController {
         UserResponse updatedUser = blogUserService.update(blogUsers);
         return Result.success(updatedUser);
     }
+
     /**
      * 注册
      */
@@ -90,9 +91,6 @@ public class BlogUserController {
     public Result<?> refresh(@CookieValue(name = "refreshToken", required = false) String refreshToken,
                              HttpServletRequest request,
                              HttpServletResponse response) {
-//        if (refreshToken == null || refreshToken.isEmpty()) {
-//            return Result.error(ErrorCode.TOKEN_EXPIRED, "Refresh token 不存在，请重新登录");
-//        }
 
         try {
             // 必须用 refresh 类型的解析方法：否则一张 access token 也能换出新 token，
