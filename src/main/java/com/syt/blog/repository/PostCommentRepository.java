@@ -7,8 +7,10 @@ import com.syt.blog.jooq.tables.BlogComments;
 import com.syt.blog.jooq.tables.records.BlogCommentsRecord;
 import org.hibernate.annotations.Comments;
 import org.jooq.DSLContext;
+import org.jooq.Record;
 import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -63,5 +65,48 @@ public class PostCommentRepository {
                 .set(BlogComments.BLOG_COMMENTS.IS_ADMIN,comment.getIsAdmin())
                 .set(BlogComments.BLOG_COMMENTS.CREATED_AT, LocalDateTime.now())
                 .execute();
+    }
+
+    public BlogCommentsRecord getCommentById(Integer commentId) {
+        return dsl.selectFrom(BlogComments.BLOG_COMMENTS).where(BlogComments.BLOG_COMMENTS.ID.eq(Long.valueOf(commentId))).fetchOne();
+    }
+
+
+    @Transactional
+    public void deleteComments(Integer commentId) {
+        dsl.deleteFrom(BlogComments.BLOG_COMMENTS).where(BlogComments.BLOG_COMMENTS.PARENT_ID.eq(Long.valueOf(commentId))).execute();
+        dsl.deleteFrom(BlogComments.BLOG_COMMENTS).where(BlogComments.BLOG_COMMENTS.ID.eq(Long.valueOf(commentId))).execute();
+    }
+
+    @Transactional
+    public Integer saveLike(Long commentId, Integer userId) {
+        Record record =  dsl.selectFrom(BlogCommentLikes.BLOG_COMMENT_LIKES)
+                .where(BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID.eq(commentId))
+                .and(BlogCommentLikes.BLOG_COMMENT_LIKES.USER_ID.eq(userId)).fetchOne();
+        if (record!=null) {
+            throw new IllegalArgumentException("您已点赞该评论");
+        }
+        dsl.insertInto(BlogCommentLikes.BLOG_COMMENT_LIKES)
+                .set( BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID,commentId)
+                .set(BlogCommentLikes.BLOG_COMMENT_LIKES.USER_ID,userId)
+                .set(BlogCommentLikes.BLOG_COMMENT_LIKES.CREATED_AT, LocalDateTime.now())
+                .execute();
+        Integer likeCount= dsl.fetchCount(dsl.selectFrom(BlogCommentLikes.BLOG_COMMENT_LIKES).where(BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID.eq(commentId)));
+        return likeCount;
+    }
+
+    public Integer deleteLike(Long aLong, Integer userId) {
+        Record record = dsl.selectFrom(BlogCommentLikes.BLOG_COMMENT_LIKES)
+                .where(BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID.eq(aLong))
+                .and(BlogCommentLikes.BLOG_COMMENT_LIKES.USER_ID.eq(userId)).fetchOne();
+        // record 存在说明已点赞，正是可取消的情形；不存在才报错。
+        // 原判断写反（record!=null 时抛错），导致取消点赞永远失败。
+        if (record == null) {
+            throw new IllegalArgumentException("您未点赞该评论");
+        }
+        dsl.deleteFrom(BlogCommentLikes.BLOG_COMMENT_LIKES)
+                .where(BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID.eq(aLong)).and(BlogCommentLikes.BLOG_COMMENT_LIKES.USER_ID.eq(userId)).execute();
+        Integer likeCount= dsl.fetchCount(dsl.selectFrom(BlogCommentLikes.BLOG_COMMENT_LIKES).where(BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID.eq(aLong)));
+        return likeCount;
     }
 }

@@ -1,10 +1,7 @@
 package com.syt.blog.repository;
 
 import com.syt.blog.DTO.Request.PostRequest;
-import com.syt.blog.DTO.Response.BlogPostDetailResponse;
-import com.syt.blog.DTO.Response.CategoryResponse;
-import com.syt.blog.DTO.Response.PostResponse;
-import com.syt.blog.DTO.Response.TagResponse;
+import com.syt.blog.DTO.Response.*;
 
 import com.syt.blog.common.PageResult;
 import com.syt.blog.jooq.tables.BlogPosts;
@@ -15,12 +12,15 @@ import org.jooq.*;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 
+import org.jooq.impl.QOM;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
 
 import static com.syt.blog.jooq.tables.BlogCategories.BLOG_CATEGORIES;
+import static com.syt.blog.jooq.tables.BlogComments.BLOG_COMMENTS;
 import static com.syt.blog.jooq.tables.BlogPostFavorites.BLOG_POST_FAVORITES;
 import static com.syt.blog.jooq.tables.BlogPostLikes.BLOG_POST_LIKES;
 import static com.syt.blog.jooq.tables.BlogPostTags.BLOG_POST_TAGS;
@@ -37,8 +37,10 @@ public class PostRepository {
     }
 
     public BlogPostsRecord getPostById(Integer postId) {
+
         return dsl.selectFrom(BLOG_POSTS).where(BLOG_POSTS.ID.eq(postId)).fetchOne();
     }
+
 
     public PostResponse getPostAndCategory(Integer postid) {
         var VO=dsl.select(
@@ -146,6 +148,12 @@ public class PostRepository {
                     r -> r.into(TagResponse.class)
                 );
         VO.forEach(p->p.setTags(tags.getOrDefault(p.getId(), List.of())));
+        Map<Integer, Integer> commentCounts=dsl.select(BLOG_COMMENTS.POST_ID,DSL.count())
+                .from(BLOG_COMMENTS).where(BLOG_COMMENTS.POST_ID.in(postIds))
+                .groupBy(BLOG_COMMENTS.POST_ID)
+
+                .fetchMap(r->r.get(BLOG_COMMENTS.POST_ID),r->r.value2());
+        VO.forEach(p->p.setCommentCount(commentCounts.getOrDefault(p.getId(),0)));
         return VO;
     }
 
@@ -252,8 +260,10 @@ public class PostRepository {
       // likeCount/favCount 是文章的点赞/收藏总次数；liked/favorited 是当前用户是否操作过
       int likeCount = dsl.fetchCount(dsl.selectFrom(BLOG_POST_LIKES).where(BLOG_POST_LIKES.POST_ID.eq(postId)));
       int favoriteCount = dsl.fetchCount(dsl.selectFrom(BLOG_POST_FAVORITES).where(BLOG_POST_FAVORITES.POST_ID.eq(postId)));
+      int commentCount = dsl.fetchCount(dsl.selectFrom(BLOG_COMMENTS).where(BLOG_COMMENTS.POST_ID.eq(postId)));
       vo.setLikeCount(likeCount);
       vo.setFavCount(favoriteCount);
+      vo.setCommentCount(commentCount);
       if (currentUserId != null) {
           vo.setLiked(dsl.fetchCount(dsl.selectFrom(BLOG_POST_LIKES)
                   .where(BLOG_POST_LIKES.POST_ID.eq(postId).and(BLOG_POST_LIKES.USER_ID.eq(currentUserId)))) > 0);
@@ -263,6 +273,7 @@ public class PostRepository {
       return vo;
     }
 
+    @Transactional
     public void save(Integer id, PostResponse postResponse, PostRequest postRequest){
         dsl.update(BLOG_POSTS).set(BLOG_POSTS.TITLE, postResponse.getTitle()).
                 set(BLOG_POSTS.SUMMARY, postResponse.getSummary()).
@@ -322,6 +333,8 @@ public class PostRepository {
         return new PageResult(rows, total, page, pageSize, totalPages);
     }
 
+
+    /** 更新文章访问量 */
     public void updateViewCount(Integer id){
         dsl.update(BLOG_POSTS).set(BLOG_POSTS.VIEW_COUNT, BLOG_POSTS.VIEW_COUNT.add(1))
                 .where(BLOG_POSTS.ID.eq(id).and(BLOG_POSTS.DELETED_AT.isNull().and(BLOG_POSTS.REVIEW_STATUS.eq((short) 1)))).execute();

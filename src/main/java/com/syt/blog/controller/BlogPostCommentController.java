@@ -8,9 +8,13 @@ import com.syt.blog.common.Result;
 import com.syt.blog.jooq.tables.pojos.BlogComments;
 import com.syt.blog.service.BlogPostCommentService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/posts")
@@ -38,4 +42,29 @@ public class BlogPostCommentController {
         return Result.success(blogPostCommentService.createComment(postId,comment));
     }
 
+    /**
+     * 删除评论*/
+
+    @DeleteMapping("/{articleId}/comments/{commentId}")
+    public Result deleteComment(@PathVariable Integer commentId, @PathVariable("articleId") @NotNull Integer postId) {
+        blogPostCommentService.deleteComment(commentId, postId);
+        return Result.success();
+    }
+
+    /**
+     * 点赞评论*/
+    @PostMapping("/{articleId}/comments/{commentId}/like")
+    public Result<Map<String,Integer>> likeComment(@PathVariable Integer commentId, @PathVariable("articleId")  Integer postId) {
+        Map<String,Integer> map = new HashMap<>();
+        map.put("likeCount",blogPostCommentService.likeComment(commentId, postId));
+        return Result.success(map);
+    }
+    /**
+     * 取消点赞评论*/
+    @DeleteMapping("/{articleId}/comments/{commentId}/like")
+    public Result<Map<String,Integer>> cancelLikeComment(@PathVariable Integer commentId, @PathVariable("articleId")  Integer postId) {
+        Map<String,Integer> map = new HashMap<>();
+        map.put("likeCount",blogPostCommentService.cancelLikeComment(commentId, postId));
+        return Result.success(map);
+    }
 }

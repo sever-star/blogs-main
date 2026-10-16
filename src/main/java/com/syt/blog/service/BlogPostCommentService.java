@@ -10,6 +10,7 @@ import com.syt.blog.repository.PostCommentRepository;
 import com.syt.blog.repository.PostRepository;
 import com.syt.blog.repository.UserRepository;
 import com.syt.blog.util.SecurityUtils;
+import jakarta.validation.constraints.NotNull;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -111,6 +112,48 @@ import java.util.*;
             };
             postCommentRepository.save(comment);
             return CommentMapper.INSTANCE.BlogCommentsToCommentsResponse(comment);
+        }
+
+        public void deleteComment(Integer commentId, Integer postId) {
+            Integer userId= SecurityUtils.currentUserId();
+            BlogUsers user = userRepository.findById(userId);
+            BlogPostsRecord post = postRepository.getPostById(postId);
+            if (post==null) {
+                throw new IllegalArgumentException("文章不存在");
+            }
+            BlogCommentsRecord comment = postCommentRepository.getCommentById(commentId);
+
+            if (comment==null) {
+                throw new IllegalArgumentException("评论不存在");
+            }
+            if(!comment.getPostId().equals(postId)){
+                throw new IllegalArgumentException("评论所属文章与请求文章不一致");
+            }
+            if (!comment.getUserId().equals(userId)&&!user.getRole().equals("ADMIN")&&!post.getUserId().equals(userId)) {
+                throw new IllegalArgumentException("您没有权限删除该评论");
+            }
+            postCommentRepository.deleteComments(commentId);
+
+        }
+
+        public Integer likeComment(Integer commentId, @NotNull Integer postId) {
+            Integer userId= SecurityUtils.currentUserId();
+            BlogCommentsRecord comment = postCommentRepository.getCommentById(commentId);
+            if (comment==null) {
+                throw new IllegalArgumentException("评论不存在");
+            }
+            Integer likeCount= postCommentRepository.saveLike(Long.valueOf(commentId),userId);
+            return likeCount;
+        }
+
+        public Integer cancelLikeComment(Integer commentId, Integer postId) {
+            Integer userId= SecurityUtils.currentUserId();
+            BlogCommentsRecord comment = postCommentRepository.getCommentById(commentId);
+            if (comment==null) {
+                throw new IllegalArgumentException("评论不存在");
+            }
+            Integer likeCount= postCommentRepository.deleteLike(Long.valueOf(commentId),userId);
+            return likeCount;
         }
     }
 

@@ -119,6 +119,10 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/posts/**").authenticated()
                         //评论对所有登录用户开放
                         .requestMatchers(HttpMethod.POST, "/api/posts/*/comments").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/posts/*/comments/{commentId}").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/posts/*/comments/{commentId}/like").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/posts/*/comments/{commentId}/like").authenticated()
+
                         // ── 需博主/管理员 ──────────────────────────────────────────
                         // 用 hasAuthority 而非 hasRole：后者会自动加 ROLE_ 前缀，
                         // 而 blog_users.role 存的就是 ADMIN，用 hasRole 会永远拒绝
