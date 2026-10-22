@@ -94,6 +94,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/categories", "/api/categories/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/tags", "/api/tags/**").permitAll()
                         .requestMatchers(HttpMethod.GET, "/api/posts/*/comments").permitAll()
+                        .requestMatchers(HttpMethod.GET,"/api/posts/top").permitAll()
 
                         // ── 公开：AI 助手对游客开放，成本控制靠 AiRateLimiter 按 IP 限流 ──
                         // 会话归属由 resolveOwner 决定：登录归用户，未登录按 IP
@@ -109,6 +110,7 @@ public class SecurityConfig {
                         // 注意：本条按前缀匹配 /api/posts/**，若日后新增 approve/reject
                         // 等管理子路径，必须在本条**之前**声明为 hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/posts/**").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/posts/*/offline").authenticated()
                         // 收藏/取消收藏登录即可。DELETE 必须在下面 ADMIN 的
                         // DELETE /api/posts/** 规则**之前**声明，否则取消收藏会被误判成管理员操作
                         .requestMatchers(HttpMethod.POST, "/api/posts/*/favorite").authenticated()
@@ -122,6 +124,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/posts/*/comments/{commentId}").authenticated()
                         .requestMatchers(HttpMethod.POST, "/api/posts/*/comments/{commentId}/like").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/posts/*/comments/{commentId}/like").authenticated()
+                        // 通知对所有登录用户开放
+                        .requestMatchers(HttpMethod.GET, "/api/notifications/unread-count").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/notifications").authenticated()
+                        .requestMatchers(HttpMethod.PUT, "/api/notifications/{id}/read").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/notifications/read-all").authenticated()
 
                         // ── 需博主/管理员 ──────────────────────────────────────────
                         // 用 hasAuthority 而非 hasRole：后者会自动加 ROLE_ 前缀，
@@ -133,6 +140,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/tags").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/tags/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/tags/**").hasAuthority("ADMIN")
+
+                        .requestMatchers(HttpMethod.POST, "/api/announcements").hasAuthority("ADMIN")
+                        .requestMatchers(HttpMethod.PUT, "/api/announcements/**").hasAuthority("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/announcements/**").hasAuthority("ADMIN")
+                        .requestMatchers(HttpMethod.GET, "/api/announcements").hasAuthority("ADMIN")
 
                         // 用户管理：GET 也拦——列表含邮箱等信息，不能放开给普通登录用户
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**").hasAuthority("ADMIN")

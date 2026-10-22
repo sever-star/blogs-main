@@ -6,6 +6,73 @@
 
 ---
 
+## 2026-10-18 · 开发环境 · Claude Code MCP（context7）启动失败：cmd 无法解析 PATH 中的孤立引号 + npm 镜像源停服
+
+### 现象
+
+`claude mcp list` 中 context7 与 filesystem 均显示
+`Failed to connect — -32000: MCP error -32000: Connection closed`。
+手动执行 `npx -y context7` 报 `'"node"' is not recognized as an internal or external command`，
+但 Git Bash 里 `node --version` 正常（v24.19.0）。
+
+### 定位过程
+
+**第 1 步：区分 bash 与 cmd 的环境差异。**
+bash 能找到 node（`which node` → `/d/nodejs/node`），cmd 却不行 → 怀疑问题在 cmd 侧。
+
+**第 2 步：一个矛盾的现象。**
+`cmd //c "where node"` 能定位到 `D:\nodejs\node.exe`，但同一会话里 `node --version` 报"不是内部或外部命令"——
+PATH 查询（where.exe）成功而执行查找失败，说明 PATH 字符串本身存在，但 cmd 解析它时出了问题。
+
+**第 3 步：逐项 dump Machine PATH。**
+发现 3 处孤立引号：
+
+| 条目 | 问题 |
+|---|---|
+| `"D:\kafka_2.13-3.9.0\...\bin\windows` | 开头多了 `"` |
+| `%PATH%"` | 字面量 `%PATH%` + 尾引号（setx 误用的典型产物） |
+| `C:\Program Files\Git\usr\bin\core_perl"` | 尾部多了 `"` |
+
+cmd 的 PATH 搜索按引号状态感知切分，孤立引号使后续条目（含 `D:\nodejs`）解析错乱；
+where.exe 按分号简单切分故不受影响——完美解释了第 2 步的矛盾。
+
+**第 4 步：控制变量验证。**
+`cmd //c "set PATH=C:\Windows\system32;D:\nodejs&& node --version"` 正常输出 v24.19.0，
+确认根因就是 PATH 中的孤立引号。
+
+**第 5 步：顺带发现第二个坑。**
+npm registry 指向 `registry.npm.taobao.org`（该域名已停服，HTTP 连通性 000），
+即使 PATH 修复，`npx` 也拉不到 context7 包。
+
+**第 6 步：PATH 修复重启后仍然失败——还有第三层根因。**
+环境修好后 `claude mcp list` 依旧 Connection closed。手动执行启动命令 `npx -y context7`，
+发现它打印 `Not enough non-option arguments: got 0, need at least 1` 后立即退出——
+原来 npm 上的 `context7` 包是"查询用 CLI"，不是 MCP 服务器，不带参数就会退出；
+而真正的 MCP 服务器包名是 **`@upstash/context7-mcp`**。MCP 客户端刚拉起进程它就死了，
+于是报 Connection closed。
+
+### 根因（三层叠加）
+
+1. Machine PATH 被 setx 误用破坏（3 处孤立引号）→ cmd 解析 PATH 错乱 → 找不到 node/npx；
+2. npm 镜像源为已下线的 taobao 域名；
+3. MCP 配置的包名错误：`context7`（CLI，需参数，秒退）≠ `@upstash/context7-mcp`（真正的 MCP 服务器）。
+
+### 修复
+
+1. `npm config set registry https://registry.npmmirror.com`；
+2. 提权脚本清理 Machine PATH（原值备份至 `C:\Users\19670\machine-path-backup-*.txt`）：
+   删除 `%PATH%"` 与空条目、用 `.Trim('"')` 剥离首尾引号、保留其余有效条目。
+   注：首版脚本正则误写为 `'+$'`（少写了 `"` 字符）导致运行时崩溃，改为 `.Trim('"')` 后成功；
+3. 重注册 MCP（用户级配置）：
+   `claude mcp remove context7 -s user` → `claude mcp add context7 -s user -- npx -y @upstash/context7-mcp`。
+
+### 验证
+
+- PATH 修复后：`node --version` → v24.19.0，cmd 可正常解析 PATH；
+- 包名修正后：`claude mcp list` 显示 `context7: npx -y @upstash/context7-mcp - √ Connected`。
+
+---
+
 ## 2026-09-24 · 创建文章 400：`null value in column "created_at"` 违反非空约束
 
 ### 现象

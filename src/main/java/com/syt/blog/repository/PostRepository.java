@@ -252,7 +252,8 @@ public class PostRepository {
       // 详情接口对游客开放（GET permitAll）：未登录时 currentUserId() 会抛 401，
       // 这里用 currentUser() 判空，liked/favorited 不设置（响应 NON_NULL 不序列化）
       Integer currentUserId = SecurityUtils.currentUser() != null ? SecurityUtils.currentUserId() : null;
-      var tag=  dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT).from(BLOG_POST_TAGS).join(BLOG_TAGS).on(BLOG_POST_TAGS.TAG_ID.eq(BLOG_TAGS.ID)).where(BLOG_POST_TAGS.POST_ID.eq(postId)).fetch(
+      var tag=  dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT).from(BLOG_POST_TAGS)
+              .join(BLOG_TAGS).on(BLOG_POST_TAGS.TAG_ID.eq(BLOG_TAGS.ID)).where(BLOG_POST_TAGS.POST_ID.eq(postId)).fetch(
                 r -> r.into(TagResponse.class)
         );
       vo.setTags(tag);
@@ -324,7 +325,8 @@ public class PostRepository {
             total = dsl.fetchCount(where);
 
             rows.forEach(r -> {
-                var tag=  dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT).from(BLOG_POST_TAGS).join(BLOG_TAGS).on(BLOG_POST_TAGS.TAG_ID.eq(BLOG_TAGS.ID)).where(BLOG_POST_TAGS.POST_ID.eq(r.getId())).fetch(
+                var tag=  dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT).from(BLOG_POST_TAGS).join(BLOG_TAGS).on(BLOG_POST_TAGS.TAG_ID.eq(BLOG_TAGS.ID))
+                        .where(BLOG_POST_TAGS.POST_ID.eq(r.getId())).fetch(
                         r1 -> r1.into(TagResponse.class)
                 );
                 r.setTags(tag);
@@ -386,5 +388,19 @@ public class PostRepository {
         dsl.deleteFrom(BLOG_POST_LIKES)
                 .where(BLOG_POST_LIKES.POST_ID.eq(postId).and(BLOG_POST_LIKES.USER_ID.eq(currentUserId)))
                 .execute();
+    }
+
+    public List<PostResponse> getTopPosts(Integer limit) {
+         List<PostResponse> posts= dsl.selectFrom(BLOG_POSTS)
+                 .where(BLOG_POSTS.STATUS.eq((short) 1))
+                 .and(BLOG_POSTS.DELETED_AT.isNull())
+                 .orderBy(BLOG_POSTS.VIEW_COUNT.desc())
+                 .limit(limit)
+                 .fetchInto(PostResponse.class);
+        return posts;
+    }
+
+    public void offPost(Integer id) {
+        dsl.update(BLOG_POSTS).set(BLOG_POSTS.STATUS, (short) 2).where(BLOG_POSTS.ID.eq(id)).execute();
     }
 }

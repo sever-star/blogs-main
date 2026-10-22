@@ -26,7 +26,8 @@ public class TagRepository {
     public PageResult findByNameContaining(int pageNumber,int pageSize) {
         List<BlogTags> tags = dsl.selectFrom(BLOG_TAGS).orderBy(BLOG_TAGS.ID.desc()).limit(pageSize).offset((pageNumber - 1) * pageSize).fetchInto(BlogTags.class);
         long total = dsl.fetchCount(BLOG_TAGS);
-        return new PageResult(tags, total, pageNumber-1, pageSize, (int) Math.ceil(total / pageSize));
+        int totalPage= pageSize>0?(int)Math.ceil(total/pageSize):0;
+        return new PageResult(tags, total, pageNumber, pageSize, totalPage);
     }
     public boolean existsByName(String name){
         return dsl.fetchExists(dsl.selectFrom(BLOG_TAGS).where(BLOG_TAGS.NAME.eq(name)));
@@ -38,7 +39,8 @@ public class TagRepository {
         SelectConditionStep<BlogTagsRecord> where = dsl.selectFrom(BLOG_TAGS).where(BLOG_TAGS.NAME.like("%" + keyword + "%"));
         List<BlogTags> result = where.orderBy(BLOG_TAGS.ID.desc()).limit(pageSize).offset((pageNumber - 1) * pageSize).fetchInto(BlogTags.class);
         long total = where.fetchStream().count();
-        PageResult pageResult=new PageResult(result,total,pageNumber-1,pageSize,(int)Math.ceil(total/pageSize));
+        int totalPage= pageSize>0?(int)Math.ceil(total/pageSize):0;
+        PageResult pageResult=new PageResult(result,total,pageNumber,pageSize,totalPage);
         return pageResult;
     }
     public BlogTags update(BlogTags blogTags) {

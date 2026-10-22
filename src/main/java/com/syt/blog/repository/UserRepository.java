@@ -70,8 +70,8 @@ public class UserRepository {
                     .fetchInto(com.syt.blog.jooq.tables.pojos.BlogUsers.class);
             total = dsl.fetchCount(where);
         }
-        int totalPages = (int) Math.ceil((double) total / pageSize);
-        return new PageResult(rows, total, page, pageSize, totalPages);
+        int totalPage = pageSize > 0 ? (int) Math.ceil((double) total / pageSize) : 0;
+        return new PageResult(rows, total, page, pageSize, totalPage);
     }
 
     /** 统计「启用中的管理员」数量，用于防止把最后一个管理员降级或禁用 */
@@ -80,4 +80,26 @@ public class UserRepository {
         return dsl.fetchCount(dsl.selectFrom(table)
                 .where(table.ROLE.eq("ADMIN").and(table.STATUS.eq((short) 1))));
     }
+
+    public void updatePassword(Integer userId, String newPassword) {
+        dsl.update(BlogUsers.BLOG_USERS)
+                .set(BlogUsers.BLOG_USERS.PASSWORD, newPassword)
+                .where(BlogUsers.BLOG_USERS.ID.eq(userId))
+                .execute();
+    }
+    public long bumpTokenVersion(Integer userId) {
+        return  dsl.update(BlogUsers.BLOG_USERS)
+                .set(BlogUsers.BLOG_USERS.TOKEN_VERSION, BlogUsers.BLOG_USERS.TOKEN_VERSION.add(1))
+                .where(BlogUsers.BLOG_USERS.ID.eq(userId))
+                // 返回更新后的 tokenVersion，用于校验
+                .returningResult(BlogUsers.BLOG_USERS.TOKEN_VERSION)
+                .fetchOneInto(Long.class);
+    }
+    public long getTokenVersion(Integer userId) {
+        return dsl.select(BlogUsers.BLOG_USERS.TOKEN_VERSION)
+                .from(BlogUsers.BLOG_USERS)
+                .where(BlogUsers.BLOG_USERS.ID.eq(userId))
+                .fetchOneInto(Long.class);
+           }
+
 }

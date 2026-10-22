@@ -1,6 +1,7 @@
 package com.syt.blog.controller;
 
 
+import com.syt.blog.DTO.Request.ChangePasswordRequest;
 import com.syt.blog.DTO.Response.LoginResponse;
 import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
@@ -99,8 +100,8 @@ public class BlogUserController {
             String username = jwtUtils.getUsernameFromRefreshToken(refreshToken);
 
             refreshTokenService.revokeRefreshToken(refreshToken);
-
-            String newAccessToken = jwtUtils.generateToken(userId, username);
+            Long tokenVersion=blogUserService.getTokenVersion(userId);
+            String newAccessToken = jwtUtils.generateToken(userId, username,tokenVersion);
             String newRefreshToken = jwtUtils.generateRefreshToken(userId, username);
 
 
@@ -127,6 +128,16 @@ public class BlogUserController {
             throw new BusinessException(ErrorCode.TOKEN_INVALID, "Token 无效，请重新登录");
         }
     }
+    /**
+     * 更新密码
+     *
+     * */
+    @PutMapping("/me/password")
+    public Result updatePassword(@RequestBody @Valid ChangePasswordRequest changePasswordRequest) {
+        blogUserService.updatePassword(changePasswordRequest);
+        return Result.success("密码更新成功");
+    }
+
 
     /**
      * 登出

@@ -54,7 +54,6 @@ public class BlogPostController {
         return Result.success(post);
     }
 
-
     /**
      * 查询所有已发布文章（公开列表）
      */
@@ -83,6 +82,12 @@ public class BlogPostController {
     public Result<List<PostResponse>> getMyPosts() {
         return Result.success(blogPostService.getMyPosts());
     }
+
+    @GetMapping("/top")
+    public Result<List<PostResponse>> getTopPosts(@RequestParam(defaultValue = "10") Integer limit){
+        List<PostResponse> postResponses = blogPostService.getTopPosts(limit);
+        return  Result.success(postResponses);
+    }
     // ==================== 审核文章 ====================
     /**
      * 审核文章
@@ -97,8 +102,14 @@ public class BlogPostController {
      * 拒绝文章
      */
     @PutMapping("/{id}/reject")
-    public Result rejectPost(@PathVariable Integer id) {
-        blogPostService.rejectPost(id);
+    public Result rejectPost(@PathVariable Integer id, @RequestBody String reason) {
+        blogPostService.rejectPost(id, reason);
+        return Result.success();
+    }
+
+    @PutMapping("/{id}/offline")
+    public Result offlinePost(@PathVariable Integer id) {
+        blogPostService.offlinePost(id);
         return Result.success();
     }
     // ==================== 收藏文章 ====================
@@ -121,7 +132,7 @@ public class BlogPostController {
         map.put("favCount", blogPostService.unfavoritePost(postId));
         return Result.success(map);
     }
-
+    // ==================== 点赞文章 ====================
     /**
      * 点赞文章，返回操作后的点赞总数
      */
@@ -162,15 +173,6 @@ public class BlogPostController {
         PostResponse updated = blogPostService.updatePost(id, postRequest);
         return Result.success(updated);
     }
-
-    /**
-     * 发布文章
-     */
-//    @PutMapping("/{id}/publish")
-//    public Result<PostResponse> publishPost(@PathVariable Integer id) {
-//        BlogPost published = blogPostService.publishPost(id);
-//        return Result.success(published);
-//    }
 
     // ==================== 删除文章 ====================
 

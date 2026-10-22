@@ -54,7 +54,8 @@ public class PostCommentRepository {
     }
 
     public void save(com.syt.blog.jooq.tables.pojos.BlogComments comment) {
-        dsl.insertInto(BlogComments.BLOG_COMMENTS)
+        LocalDateTime now = LocalDateTime.now();
+        BlogCommentsRecord saved = dsl.insertInto(BlogComments.BLOG_COMMENTS)
                 .set(BlogComments.BLOG_COMMENTS.NICKNAME,comment.getNickname())
                 .set(BlogComments.BLOG_COMMENTS.AVATAR,comment.getAvatar())
                 .set(BlogComments.BLOG_COMMENTS.CONTENT,comment.getContent())
@@ -63,8 +64,16 @@ public class PostCommentRepository {
                 .set(BlogComments.BLOG_COMMENTS.PARENT_ID,comment.getParentId())
                 .set(BlogComments.BLOG_COMMENTS.REPLY_TO_ID,comment.getReplyToId())
                 .set(BlogComments.BLOG_COMMENTS.IS_ADMIN,comment.getIsAdmin())
-                .set(BlogComments.BLOG_COMMENTS.CREATED_AT, LocalDateTime.now())
-                .execute();
+                .set(BlogComments.BLOG_COMMENTS.CREATED_AT, now)
+                .returning()
+                .fetchOne();
+        // 把自增 id 与创建时间回写到 POJO：POST 评论的响应直接用它映射，
+        // 不回写的话前端拿到 id=null（回复该评论时 parentId 为空会退化成顶级评论）、
+        // createdAt=null（发布时间显示 1970/Invalid Date）
+        if (saved != null) {
+            comment.setId(saved.getId());
+        }
+        comment.setCreatedAt(now);
     }
 
     public BlogCommentsRecord getCommentById(Integer commentId) {
@@ -74,8 +83,15 @@ public class PostCommentRepository {
 
     @Transactional
     public void deleteComments(Integer commentId) {
-        dsl.deleteFrom(BlogComments.BLOG_COMMENTS).where(BlogComments.BLOG_COMMENTS.PARENT_ID.eq(Long.valueOf(commentId))).execute();
-        dsl.deleteFrom(BlogComments.BLOG_COMMENTS).where(BlogComments.BLOG_COMMENTS.ID.eq(Long.valueOf(commentId))).execute();
+        List<Long> commentIds = dsl.select(BlogComments.BLOG_COMMENTS.ID)
+                .from(BlogComments.BLOG_COMMENTS)
+                .where(BlogComments.BLOG_COMMENTS.PARENT_ID.eq(Long.valueOf(commentId))
+                        .or(BlogComments.BLOG_COMMENTS.REPLY_TO_ID.eq(Long.valueOf(commentId)))
+                        .or(BlogComments.BLOG_COMMENTS.ID.eq(Long.valueOf(commentId)))).fetch(BlogComments.BLOG_COMMENTS.ID);
+        dsl.deleteFrom(BlogCommentLikes.BLOG_COMMENT_LIKES)
+                .where(BlogCommentLikes.BLOG_COMMENT_LIKES.COMMENT_ID.in(commentIds)).execute();
+        dsl.deleteFrom(BlogComments.BLOG_COMMENTS)
+                .where(BlogComments.BLOG_COMMENTS.ID.in(commentIds)).execute();
     }
 
     @Transactional

@@ -52,13 +52,14 @@ public class JwtUtils {
      * @param username 用户名
      * @return JWT 字符串
      */
-    public String generateToken(Integer userId, String username) {
+    public String generateToken(Integer userId, String username,long tokenVersion) {
         Date now = new Date();
         Date expiryDate = new Date(now.getTime() + expiration);
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("username", username)
                 .claim("type", "access")
+                .claim("tv",tokenVersion)
                 .issuedAt(now)
                 .expiration(expiryDate)
                 .id(UUID.randomUUID().toString())
@@ -136,6 +137,10 @@ public class JwtUtils {
      */
     public String getUsernameFromAccessToken(String token) {
         return parseTokenWithExpectedType(token, TYPE_ACCESS).get("username", String.class);
+    }
+    public long getTokenVersion(String token) {
+        Claims claims= parseTokenWithExpectedType(token, TYPE_ACCESS);
+        return claims.get("tv",Long.class)==null?0:claims.get("tv",Long.class);
     }
 
     /**

@@ -31,11 +31,13 @@ public class BlogPostService {
     private final ViewCountService viewCountService;
     private final PostRepository postRepository;
     private final DSLContext dsl;
+    private final NotificationService notificationService;
 
-    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, DSLContext dsl) {
+    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, DSLContext dsl, NotificationService notificationService) {
         this.viewCountService = viewCountService;
         this.postRepository = postRepository;
         this.dsl = dsl;
+        this.notificationService = notificationService;
     }
 
     private static final int STATUS_PUBLISHED = 1;
@@ -109,10 +111,15 @@ public class BlogPostService {
         blogPostsRecord.setReviewStatus((short) STATUS_PUBLISHED);
         blogPostsRecord.setReviewedAt(LocalDateTime.now());
         blogPostsRecord.update();
+        try{
+            notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已通过审核", "文章<"+blogPostsRecord.getTitle()+"已通过审核", "/article/" + id);
+        }catch (Exception e){
+            log.warn("审核通过通知生成失败 postId={} actor={}", id, currentUserId, e);
+        }
     }
 
 
-    public void rejectPost(Integer id) {
+    public void rejectPost(Integer id, String reason) {
         BlogPostsRecord blogPostsRecord = postRepository.getPostById(id);
         if (blogPostsRecord == null) {
             throw new ResourceNotFoundException("文章不存在");
@@ -126,16 +133,29 @@ public class BlogPostService {
         blogPostsRecord.setReviewStatus((short) 2);
         blogPostsRecord.setReviewedAt(LocalDateTime.now());
         blogPostsRecord.update();
+        try{
+            notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已被驳回", "文章<"+blogPostsRecord.getTitle()+"已被驳回，原因："+reason, "/article/" + id);
+        }catch (Exception e){
+            log.warn("审核拒绝通知生成失败 postId={} actor={}", id, currentUserId, e);
+        }
     }
 
 
     public int likePost(Integer postId) {
         Integer currentUserId = SecurityUtils.currentUserId();
         requireVisiblePost(postId, currentUserId);
+        BlogPostsRecord post = postRepository.getPostById(postId);
         if (postRepository.findByLike(postId, currentUserId)) {
             throw new BusinessException(400, "文章已点赞");
         }
         postRepository.like(postId, currentUserId);
+        // 通知文章作者（防自扰在 createNotification 内）；type 用前端约定的 like（非 post_like），
+        // 通知失败不影响点赞主流程
+        try {
+            notificationService.createNotification(post.getUserId(), currentUserId, "like", "点赞了你的文章", "点赞了你的文章", "/article/" + postId);
+        } catch (Exception e) {
+            log.warn("点赞通知生成失败 postId={} actor={}", postId, currentUserId, e);
+        }
         return postRepository.countLikes(postId);
     }
 
@@ -179,10 +199,17 @@ public class BlogPostService {
     public int favoritePost(Integer postId) {
         Integer currentUserId = SecurityUtils.currentUserId();
         requireVisiblePost(postId, currentUserId);
+        BlogPostsRecord post = postRepository.getPostById(postId);
         if (postRepository.findByFavorite(postId, currentUserId) != 0) {
             throw new BusinessException(400, "文章已收藏");
         }
         postRepository.favorite(postId, currentUserId);
+        // type 用前端约定的 favorite（非 post_favorite）；通知失败不影响收藏主流程
+        try {
+            notificationService.createNotification(post.getUserId(), currentUserId, "favorite", "收藏了你的文章", "收藏了你的文章", "/article/" + postId);
+        } catch (Exception e) {
+            log.warn("收藏通知生成失败 postId={} actor={}", postId, currentUserId, e);
+        }
         return syncFavCount(postId);
     }
 
@@ -290,5 +317,31 @@ public class BlogPostService {
     @Transactional
     public void incrementViewCount(Integer id) {
         postRepository.updateViewCount(id);
+    }
+
+    public List<PostResponse> getTopPosts(Integer limit) {
+        return postRepository.getTopPosts(limit);
+    }
+
+    public void offlinePost(Integer id) {
+        Integer currentUserId = SecurityUtils.currentUserId();
+        BlogPostsRecord post = postRepository.getPostById(id);
+        // requireVisiblePost：存在、未软删、审核通过；但它不看 status，
+        // 已下架（status=2）的文章会校验通过被重复下架，需补 status 判断
+        requireVisiblePost(id, currentUserId);
+        if(!SecurityUtils.isAdmin()&&!currentUserId.equals(post.getUserId())){
+            throw new BusinessException(403, "只有文章作者以及管理员可以下架");
+        }
+        if (post.getStatus() == null || post.getStatus() != 1) {
+            throw new BusinessException(400, "仅已发布的文章可以下架");
+        }
+        postRepository.offPost(id);
+        // 管理员下架他人文章时通知作者（作者自己下架 actor==receiver，防自扰自动跳过）
+        try {
+            notificationService.createNotification(post.getUserId(),currentUserId,"system","文章已下架","下架了你的文章《" + post.getTitle() + "》","/article/"+id);
+        } catch (Exception e) {
+            log.warn("下架通知生成失败 postId={} actor={}", id, currentUserId, e);
+        }
+
     }
 }

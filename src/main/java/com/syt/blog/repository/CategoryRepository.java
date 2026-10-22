@@ -23,13 +23,15 @@ public class CategoryRepository {
         SelectConditionStep<BlogCategoriesRecord> where = dsl.selectFrom(BLOG_CATEGORIES).where(BLOG_CATEGORIES.NAME.like("%" + keyword + "%"));
         List<BlogCategories> result = where.orderBy(BLOG_CATEGORIES.ID.desc()).limit(pageSize).offset((pageNumber - 1) * pageSize).fetchInto(BlogCategories.class);
         long total = where.fetchStream().count();
-        PageResult pageResult=new PageResult(result,total,pageNumber-1,pageSize,(int)Math.ceil(total/pageSize));
+        int totalPage= pageSize>0?(int)Math.ceil(total/pageSize):0;
+        PageResult pageResult=new PageResult(result,total,pageNumber,pageSize,totalPage);
         return pageResult;
     }
     public PageResult findByNameContaining(int pageNumber,int pageSize) {
         List<BlogCategories> tags = dsl.selectFrom(BLOG_CATEGORIES).orderBy(BLOG_CATEGORIES.ID.desc()).limit(pageSize).offset((pageNumber - 1) * pageSize).fetchInto(BlogCategories.class);
         long total = dsl.fetchCount(BLOG_CATEGORIES);
-        return new PageResult(tags, total, pageNumber-1, pageSize, (int) Math.ceil(total / pageSize));
+        int totalPage= pageSize>0?(int)Math.ceil(total/pageSize):0;
+        return new PageResult(tags, total, pageNumber, pageSize, totalPage);
     }
     public boolean existsByName(String name) {
         return dsl.fetchExists(dsl.selectFrom(BLOG_CATEGORIES).where(BLOG_CATEGORIES.NAME.eq(name)));

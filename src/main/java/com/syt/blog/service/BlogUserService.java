@@ -1,6 +1,7 @@
 package com.syt.blog.service;
 
 import com.syt.blog.DTO.Mapper.UserMapper;
+import com.syt.blog.DTO.Request.ChangePasswordRequest;
 import com.syt.blog.DTO.Response.LoginResponse;
 import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
@@ -16,6 +17,7 @@ import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,8 +67,10 @@ public class BlogUserService {
         if (users.getStatus() == null || users.getStatus() != STATUS_ACTIVE) {
             throw new BusinessException(ErrorCode.ACCOUNT_DISABLED, "账号已被禁用");
         }
-
-        String accessToken = jwtUtils.generateToken(users.getId(), users.getUsername());
+        //禁用所有刷新令牌
+        refreshTokenService.revokeAllByUserId(users.getId());
+        Long tokenVersion = bumpTokenVersion(users.getId());
+        String accessToken = jwtUtils.generateToken(users.getId(), users.getUsername(),tokenVersion);
         String refreshToken = jwtUtils.generateRefreshToken(users.getId(), users.getUsername());
 
         String userAgent = request.getHeader("User-Agent");
@@ -140,7 +144,8 @@ public class BlogUserService {
         blogUsersDao.insert(blogUsers);
 
         log.info("userId: " + blogUsers.getId());
-        String accessToken = jwtUtils.generateToken(blogUsers.getId(), blogUsers.getUsername());
+        Long tokenVersion = getTokenVersion(blogUsers.getId());
+        String accessToken = jwtUtils.generateToken(blogUsers.getId(), blogUsers.getUsername(),tokenVersion);
         LoginResponse loginResponse = new LoginResponse();
         loginResponse.setAccessToken(accessToken);
         UserResponse userResponse = UserMapper.INSTANCE.BlogUsersToUserResponse(blogUsers);
@@ -254,7 +259,7 @@ public class BlogUserService {
         log.info("管理员 {} 将用户 {} 的状态改为 {}", SecurityUtils.currentUserId(), id, status);
         return UserMapper.INSTANCE.BlogUsersToUserResponse(existing);
     }
-    /***？
+    /***
      *
      * @param id 目标用户 ID
      * @return 重置后的密码
@@ -276,11 +281,22 @@ public class BlogUserService {
         return existing;
     }
 
+    @Transactional
     public void logout(String refreshToken, HttpServletResponse response) {
+
+
         if (refreshToken != null && !refreshToken.isEmpty()) {
-            refreshTokenService.revokeRefreshToken(refreshToken);
+            try {
+                Integer userId = jwtUtils.getUserIdFromRefreshToken(refreshToken);
+                refreshTokenService.revokeRefreshToken(refreshToken);
+                bumpTokenVersion(userId);
+            }catch (Exception e) {
+                log.debug("撤销刷新令牌失败", e);
+            }
+
         }
         clearRefreshTokenCookie(response);
+
     }
 
     /**
@@ -313,5 +329,30 @@ public class BlogUserService {
         response.addCookie(cookie);
     }
 
+    @Transactional
+    public void updatePassword(@Valid ChangePasswordRequest changePasswordRequest) {
+        Integer userId = SecurityUtils.currentUserId();
+        String oldPassword = changePasswordRequest.getOldPassword();
+        String newPassword = changePasswordRequest.getNewPassword();
+        BlogUsers existing = userRepository.findById(userId);
+        if (!bCryptPasswordEncoder.matches(oldPassword, existing.getPassword())) {
+            throw new BusinessException(400, "旧密码错误");
+        }
+        if (newPassword.equals(oldPassword)) {
+            throw new BusinessException(400, "新密码不能与旧密码相同");
+        }
+        userRepository.updatePassword(userId, bCryptPasswordEncoder.encode(newPassword));
+        log.info("用户 {} 更新密码为 {}", userId, newPassword);
+        refreshTokenService.revokeAllByUserId(userId);
+        //更新 token 版本
+        bumpTokenVersion(userId);
+    }
 
+    public Long bumpTokenVersion(Integer userId) {
+        return userRepository.bumpTokenVersion(userId);
+    }
+
+    public Long getTokenVersion(Integer userId) {
+        return userRepository.getTokenVersion(userId);
+    }
 }

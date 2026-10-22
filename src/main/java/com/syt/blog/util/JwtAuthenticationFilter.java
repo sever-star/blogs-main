@@ -85,7 +85,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         // 每请求查一次库：降权立即生效（不用等 15 分钟 token 过期），并顺带校验账号状态
         var user = userRepository.findById(userId);
+
         if (user == null) {
+            fail(request, ErrorCode.TOKEN_INVALID, "Token 无效，请重新登录");
+            filterChain.doFilter(request, response);
+            return;
+        }
+        long tv=jwtUtils.getTokenVersion(token);
+        if(user.getTokenVersion()!=null&&tv!=user.getTokenVersion()){
             fail(request, ErrorCode.TOKEN_INVALID, "Token 无效，请重新登录");
             filterChain.doFilter(request, response);
             return;

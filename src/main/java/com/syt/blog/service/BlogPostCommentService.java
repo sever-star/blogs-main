@@ -23,9 +23,11 @@ import java.util.*;
         private final PostCommentRepository postCommentRepository;
         private final PostRepository postRepository;
         private final UserRepository userRepository;
+        private final NotificationService notificationService;
 
 
         public List<CommentsResponse> listComments(Integer postId) {
+            // TODO
             BlogPostsRecord post = postRepository.getPostById(postId);
             if (post==null) {
                 throw new IllegalArgumentException("文章不存在");
@@ -52,7 +54,7 @@ import java.util.*;
                     .forEach(r->toMap.put(r.getId(),toVo(r,likeCountMap,likedIds)));
             comments.stream()
                     .filter(r->r.getParentId()!=null&&r.getParentId()!=0L)
-                    .sorted(Comparator.comparing(BlogCommentsRecord::getCreatedAt))
+                    .sorted(Comparator.comparing(BlogCommentsRecord::getCreatedAt).reversed())
                     .forEach(r->{
                         CommentsResponse parent=toMap.get(r.getParentId());
                         //bug修复:在tovo方法中设置replies为list.of(),导致数据无法添加
@@ -111,6 +113,23 @@ import java.util.*;
                 comment.setIsAdmin((short) 0);
             };
             postCommentRepository.save(comment);
+            // 通知：顶级评论→文章作者（post_comment）；回复→被回复评论的作者（comment_reply）。
+            // 防自扰在 createNotification 内；通知失败不影响评论主流程。
+            try {
+                String link = "/article/" + postId + "#comment-" + comment.getId();
+                if (comment.getParentId() != null && comment.getParentId() != 0L) {
+                    BlogCommentsRecord parent = postCommentRepository.getCommentById(comment.getParentId().intValue());
+                    if (parent != null) {
+                        notificationService.createNotification(parent.getUserId(), userId, "comment_reply",
+                                "回复了你的评论", "回复了你的评论", link);
+                    }
+                } else {
+                    notificationService.createNotification(post.getUserId(), userId, "post_comment",
+                            "评论了你的文章", "评论了你的文章", link);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
             return CommentMapper.INSTANCE.BlogCommentsToCommentsResponse(comment);
         }
 
@@ -129,7 +148,7 @@ import java.util.*;
             if(!comment.getPostId().equals(postId)){
                 throw new IllegalArgumentException("评论所属文章与请求文章不一致");
             }
-            if (!comment.getUserId().equals(userId)&&!user.getRole().equals("ADMIN")&&!post.getUserId().equals(userId)) {
+            if (!userId.equals(comment.getUserId())&&!"ADMIN".equals(user.getRole())&&!post.getUserId().equals(userId)) {
                 throw new IllegalArgumentException("您没有权限删除该评论");
             }
             postCommentRepository.deleteComments(commentId);
@@ -143,6 +162,11 @@ import java.util.*;
                 throw new IllegalArgumentException("评论不存在");
             }
             Integer likeCount= postCommentRepository.saveLike(Long.valueOf(commentId),userId);
+            try {
+                notificationService.createNotification(comment.getUserId(),userId,"comment_like","点赞了您的评论","点赞了您的评论","/article/" + postId + "#comment-" + commentId);
+            }catch (Exception e){
+                e.printStackTrace();
+            }
             return likeCount;
         }
 

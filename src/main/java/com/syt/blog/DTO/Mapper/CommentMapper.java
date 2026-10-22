@@ -19,5 +19,7 @@ public interface CommentMapper {
     @Mapping(target = "replyToId", source = "replyToId")
     BlogComments createComment(PostCommentRequest postCommentRequest);
 
+    /** 发布评论的响应：字段名不一致的 postId→articleId 需显式映射，其余同名自动映射 */
+    @Mapping(target = "articleId", source = "postId")
     CommentsResponse BlogCommentsToCommentsResponse(BlogComments blogComments);
 }
