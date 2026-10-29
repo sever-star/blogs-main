@@ -1,15 +1,21 @@
 package com.syt.blog.service;
 
 import com.syt.blog.DTO.Response.NotificationResponse;
+import com.syt.blog.common.AuthUser;
+import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.PageResult;
+import com.syt.blog.common.ResourceNotFoundException;
+import com.syt.blog.jooq.tables.pojos.BlogNotifications;
 import com.syt.blog.jooq.tables.records.BlogNotificationsRecord;
 import com.syt.blog.repository.NotificationRepository;
 import com.syt.blog.repository.UserRepository;
 import com.syt.blog.util.SecurityUtils;
 import lombok.RequiredArgsConstructor;
+import org.jooq.impl.QOM;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 站内通知业务：
@@ -34,7 +40,7 @@ public class NotificationService {
         return new PageResult(data, total, page, pageSize, totalPages);
     }
 
-    public long unreadCount() {
+    public Map<String, Long> unreadCount() {
         Integer userId = SecurityUtils.currentUserId();
         notificationRepository.Insert(userId);
         return notificationRepository.countUnread(userId);
@@ -76,7 +82,28 @@ public class NotificationService {
         String content = actorNickname + " " + contentPrefix;
         notificationRepository.insert(receiverId, type, title, content, link);
     }
+    /**
+     *删除通知
+     * @param id 通知id
+     */
+    public void delete(Long id) {
+        BlogNotifications blogNotifications=notificationRepository.findById(id);
+        if(blogNotifications==null){
+            throw new BusinessException(404,"通知不存在");
+        }
+        AuthUser user =SecurityUtils.currentUser();
+        if(!"ADMIN".equals(user.role())){
+            boolean b = user.id() == blogNotifications.getUserId();
+            if (!b){
+                throw new BusinessException(404,"通知非本人");
+            }
+            notificationRepository.delete(id);
 
+        }
+        notificationRepository.delete(id);
+
+
+    }
     private NotificationResponse toVo(BlogNotificationsRecord r) {
         NotificationResponse vo = new NotificationResponse();
         vo.setId(r.getId());
@@ -88,4 +115,6 @@ public class NotificationService {
         vo.setCreatedAt(r.getCreatedAt());
         return vo;
     }
+
+
 }

@@ -35,10 +35,11 @@ public class AiProperties {
     private int maxTokens = 2048;
 
     /** 采样温度 */
+    //模型生成文本时的随机性和创造性，接近0输出更稳定，解决1输出更随机
     private double temperature = 0.7;
 
     /** 游客每 IP 每小时提问次数上限 */
-    private int guestHourlyLimit = 20;
+    private int guestHourlyLimit = 10;
 
     /** 单次提问附件文本总字符上限，超出部分截断 */
     private int maxAttachmentChars = 20000;

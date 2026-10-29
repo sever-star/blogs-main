@@ -67,13 +67,14 @@ public class JwtUtils {
                 .compact();
     }
 
-    public String generateRefreshToken(Integer userId,String username) {
+    public String generateRefreshToken(Integer userId,String username, long tokenVersion) {
         Date now = new Date();
         Date refreshExpiryDate = new Date(now.getTime() + refreshExpiration);
         return Jwts.builder()
                 .subject(String.valueOf(userId))
                 .claim("username", username)
                 .claim("type", "refresh")
+                .claim("tv",tokenVersion)
                 .issuedAt(now)
                 .expiration(refreshExpiryDate)
                 .id(UUID.randomUUID().toString())

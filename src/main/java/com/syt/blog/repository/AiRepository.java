@@ -4,8 +4,10 @@ import com.syt.blog.jooq.tables.pojos.BlogAiMessages;
 import com.syt.blog.jooq.tables.pojos.BlogAiSessions;
 import com.syt.blog.jooq.tables.records.BlogAiMessagesRecord;
 import com.syt.blog.jooq.tables.records.BlogAiSessionsRecord;
+import com.syt.blog.service.AiChatService;
 import org.jooq.DSLContext;
 import org.jooq.Condition;
+import org.jooq.impl.DSL;
 import org.springframework.stereotype.Repository;
 
 import java.util.Collections;
@@ -13,6 +15,7 @@ import java.util.List;
 
 import static com.syt.blog.jooq.tables.BlogAiMessages.BLOG_AI_MESSAGES;
 import static com.syt.blog.jooq.tables.BlogAiSessions.BLOG_AI_SESSIONS;
+import static com.syt.blog.jooq.tables.BlogAiUsage.BLOG_AI_USAGE;
 
 /**
  * AI 会话与消息的数据访问层（jOOQ）。
@@ -58,9 +61,22 @@ public class AiRepository {
     }
 
     /** 按归属条件列会话，最近更新的在前 */
-    public List<BlogAiSessions> listSessions(Condition owner, int limit) {
+    public List<BlogAiSessions> listSessions(AiChatService.Owner owner, int limit) {
+        /**
+        * 会话可见范围：登录用户看自己的，游客看本 IP 下未绑定用户的。
+        * <p>
+        * 两者取并集，这样「游客先聊、随后登录」也能接着原会话继续，而不会丢历史。
+        */
+        //判断是否有登录用户id，没有就设当前条件为永假式
+        Condition byUser = owner.userId() != null
+                ? BLOG_AI_SESSIONS.USER_ID.eq(owner.userId())
+                : DSL.falseCondition();
+        //找出没有登录的IP
+        Condition byIp = BLOG_AI_SESSIONS.USER_ID.isNull()
+                .and(BLOG_AI_SESSIONS.USER_IP.eq(owner.ip()));
+        Condition o= byUser.or(byIp);
         return dsl.selectFrom(BLOG_AI_SESSIONS)
-                .where(owner)
+                .where(o)
                 .orderBy(BLOG_AI_SESSIONS.UPDATED_AT.desc(), BLOG_AI_SESSIONS.ID.desc())
                 .limit(limit)
                 .fetchInto(BlogAiSessions.class);
@@ -80,6 +96,7 @@ public class AiRepository {
     }
 
     /** 删除会话（消息表有 ON DELETE CASCADE，会一并清理） */
+    //ON DELETE CASCADE关联清理
     public void deleteSession(long sessionId) {
         dsl.deleteFrom(BLOG_AI_SESSIONS)
                 .where(BLOG_AI_SESSIONS.ID.eq(sessionId))
@@ -151,5 +168,33 @@ public class AiRepository {
     /** 会话下消息条数（用于判断是否需要按首条提问自动命名） */
     public int countMessages(long sessionId) {
         return dsl.fetchCount(BLOG_AI_MESSAGES, BLOG_AI_MESSAGES.SESSION_ID.eq(sessionId));
+    }
+
+    // ==================== 后台 AI 调用审计（blog_ai_usage） ====================
+
+    /**
+     * 记录一次非对话类 AI 调用（生成标题/摘要等），返回自增主键。
+     * <p>
+     * 成功与失败都记：成功填 outputText/tokens、status=1；失败填 errorMessage、status=0。
+     * 生成时文章可能尚未落库，refId 传 null，待文章提交后由上层回填（暂未回填）。
+     */
+    public long insertUsage(Integer userId, String userIp, String type, String refType,
+                            Long refId, String inputText, String outputText,
+                            int tokens, String model, short status, String errorMessage) {
+        return dsl.insertInto(BLOG_AI_USAGE)
+                .set(BLOG_AI_USAGE.USER_ID, userId)
+                .set(BLOG_AI_USAGE.USER_IP, userIp)
+                .set(BLOG_AI_USAGE.TYPE, type)
+                .set(BLOG_AI_USAGE.REF_TYPE, refType)
+                .set(BLOG_AI_USAGE.REF_ID, refId)
+                .set(BLOG_AI_USAGE.INPUT_TEXT, inputText)
+                .set(BLOG_AI_USAGE.OUTPUT_TEXT, outputText)
+                .set(BLOG_AI_USAGE.TOKENS, tokens)
+                .set(BLOG_AI_USAGE.MODEL, model)
+                .set(BLOG_AI_USAGE.STATUS, status)
+                .set(BLOG_AI_USAGE.ERROR_MESSAGE, errorMessage)
+                .returning(BLOG_AI_USAGE.ID)
+                .fetchOne()
+                .getId();
     }
 }

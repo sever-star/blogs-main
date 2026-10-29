@@ -10,15 +10,10 @@ import com.syt.blog.jooq.tables.daos.BlogPostTagsDao;
 import com.syt.blog.jooq.tables.daos.BlogTagsDao;
 import com.syt.blog.jooq.tables.pojos.BlogPostTags;
 import com.syt.blog.jooq.tables.pojos.BlogTags;
-import com.syt.blog.jooq.tables.records.BlogPostTagsRecord;
-import com.syt.blog.repository.PostRepository;
 import com.syt.blog.repository.TagRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
-import org.jooq.Table;
-import org.jooq.impl.DSL;
 import org.springframework.stereotype.Service;
 
 import java.time.format.DateTimeFormatter;
@@ -37,18 +32,19 @@ public class BlogTagService {
 
     /**
      * 保存标签
-     * @param blogTags
+     * @param tagRequest
      * @return
      */
     @Transactional
-    public TagResponse saveBlogTag(BlogTags blogTags) {
-        if (tagRepository.existsByName(blogTags.getName())) {
+    public TagResponse saveBlogTag(TagRequest tagRequest) {
+        BlogTags blogTag = TagMapper.INSTANCE.blogTagsToBlogTagRequest(tagRequest);
+        if (tagRepository.existsByName(blogTag.getName())) {
             throw new DuplicateNameException("标签名称重复");
         }
-        blogTagsDao.insert(blogTags);
-        log.info("保存标签：{}", blogTags);
-        TagResponse tagResponse = new TagResponse();
-        tagResponse = TagMapper.INSTANCE.blogTagsToTagResponse(blogTags);
+        blogTagsDao.insert(blogTag);
+        log.info("保存标签：{}", blogTag);
+        TagResponse tagResponse;
+        tagResponse = TagMapper.INSTANCE.blogTagsToTagResponse(blogTag);
 
         return tagResponse;
     }
@@ -109,12 +105,13 @@ public class BlogTagService {
     /**
      * 更新标签
      * @param id
-     * @param blogTags
+     * @param tagRequest
      * @return
      */
 
     @Transactional
-    public TagResponse updateBlogTag(Integer id, BlogTags blogTags) {
+    public TagResponse updateBlogTag(Integer id, TagRequest tagRequest) {
+        BlogTags blogTags= TagMapper.INSTANCE.blogTagsToBlogTagRequest(tagRequest);
         BlogTags blogTag = blogTagsDao.findById(id);
         if (blogTag == null) {
             throw new ResourceNotFoundException("标签不存在");

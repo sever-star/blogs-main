@@ -2,6 +2,9 @@ package com.syt.blog.service;
 
 import com.syt.blog.DTO.Mapper.UserMapper;
 import com.syt.blog.DTO.Request.ChangePasswordRequest;
+import com.syt.blog.DTO.Request.LoginRequest;
+import com.syt.blog.DTO.Request.RegisterRequest;
+import com.syt.blog.DTO.Request.UpdateProfileRequest;
 import com.syt.blog.DTO.Response.LoginResponse;
 import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
@@ -49,12 +52,12 @@ public class BlogUserService {
     /**
      * 用户登录
      *
-     * @param blogUsers 登录参数
+     * @param loginRequest 登录参数
      * @param request HTTP 请求
      * @return 登录结果
      */
-    public LoginResponse login(BlogUsers blogUsers, HttpServletRequest request, HttpServletResponse response) {
-
+    public LoginResponse login(LoginRequest loginRequest, HttpServletRequest request, HttpServletResponse response) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.login(loginRequest);
         BlogUsers users = userRepository.findByUsername(blogUsers.getUsername());
         if (users == null || !bCryptPasswordEncoder.matches(blogUsers.getPassword(), users.getPassword())) {
             throw new BusinessException(401, "用户名或密码错误");
@@ -69,9 +72,10 @@ public class BlogUserService {
         }
         //禁用所有刷新令牌
         refreshTokenService.revokeAllByUserId(users.getId());
+
         Long tokenVersion = bumpTokenVersion(users.getId());
         String accessToken = jwtUtils.generateToken(users.getId(), users.getUsername(),tokenVersion);
-        String refreshToken = jwtUtils.generateRefreshToken(users.getId(), users.getUsername());
+        String refreshToken = jwtUtils.generateRefreshToken(users.getId(), users.getUsername(),tokenVersion);
 
         String userAgent = request.getHeader("User-Agent");
         String ip = getClientIp(request);
@@ -83,6 +87,7 @@ public class BlogUserService {
 
         UserResponse userResponse = UserMapper.INSTANCE.BlogUsersToUserResponse(users);
         LoginResponse loginResponse = new LoginResponse(accessToken, userResponse);
+        deleteRefreshToken();
         return loginResponse;
     }
     /**
@@ -121,11 +126,12 @@ public class BlogUserService {
     /**
      * 用户注册
      *
-     * @param blogUsers 注册参数
+     * @param registerRequest 注册参数
      * @return 注册结果
      */
     @Transactional
-    public LoginResponse register(BlogUsers blogUsers) {
+    public LoginResponse register(RegisterRequest registerRequest) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.register(registerRequest);
         String username = blogUsers.getUsername();
         log.info("blogUsers user: " + username);
 
@@ -156,11 +162,12 @@ public class BlogUserService {
     /**
      * 更新用户信息
      *
-     * @param patch 待更新的资料字段（null 表示该字段不改）
+     * @param updateProfileRequest 待更新的资料字段（null 表示该字段不改）
      * @return 更新后的用户信息
      */
     @Transactional
-    public UserResponse update(BlogUsers patch) {
+    public UserResponse update(UpdateProfileRequest updateProfileRequest) {
+        BlogUsers blogUsers = UserMapper.INSTANCE.updateProfile(updateProfileRequest);
         // 以 SecurityContext 里的用户为准：token 里没有的目标 id 就取不到，天然防越权改他人资料
         BlogUsers existing = userRepository.findById(SecurityUtils.currentUserId());
         if (existing == null) {
@@ -172,12 +179,12 @@ public class BlogUserService {
         // 其余列（password/status/role/last_login_at/时间戳）保持库中原值。
         // 另外 jOOQ 只省略「非空约束且为 null」的列，可空列会被写成 NULL，
         // 所以必须在这里做「传了才改」，否则没传的字段会被清空。
-        if (patch.getNickname() != null) existing.setNickname(patch.getNickname());
-        if (patch.getAvatar() != null)   existing.setAvatar(patch.getAvatar());
-        if (patch.getBio() != null)      existing.setBio(patch.getBio());
-        if (patch.getWebsite() != null)  existing.setWebsite(patch.getWebsite());
-        if (patch.getGithub() != null)   existing.setGithub(patch.getGithub());
-        if (patch.getWeibo() != null)    existing.setWeibo(patch.getWeibo());
+        if (blogUsers.getNickname() != null) existing.setNickname(blogUsers.getNickname());
+        if (blogUsers.getAvatar() != null)   existing.setAvatar(blogUsers.getAvatar());
+        if (blogUsers.getBio() != null)      existing.setBio(blogUsers.getBio());
+        if (blogUsers.getWebsite() != null)  existing.setWebsite(blogUsers.getWebsite());
+        if (blogUsers.getGithub() != null)   existing.setGithub(blogUsers.getGithub());
+        if (blogUsers.getWeibo() != null)    existing.setWeibo(blogUsers.getWeibo());
 
         blogUsersDao.update(existing);
         return UserMapper.INSTANCE.BlogUsersToUserResponse(existing);
@@ -311,6 +318,12 @@ public class BlogUserService {
         cookie.setPath("/api/auth");
         cookie.setMaxAge(0);
         response.addCookie(cookie);
+    }
+    /**
+     * 清除无效令牌
+     **/
+    private void deleteRefreshToken() {
+        refreshTokenService.deleterevokedNO();
     }
 
     /**

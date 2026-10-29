@@ -66,6 +66,19 @@ public class BlogPostController {
     }
 
     /**
+     *查询登录用户点赞的文章
+     */
+    @GetMapping("/liked")
+    public  Result<List<PostResponse>> getLikedPosts(){
+        List<PostResponse> posts=blogPostService.getLikePost();
+        return Result.success(posts);
+    }
+    @GetMapping("/favorited")
+    public  Result<List<PostResponse>> getFavoritedPosts(){
+        List<PostResponse> posts=blogPostService.getFavoritedPosts();
+        return Result.success(posts);
+    }
+    /**
      * 查询所有待审核文章（仅管理员）
      */
     @GetMapping("/pending")

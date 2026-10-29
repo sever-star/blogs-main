@@ -10,6 +10,7 @@ public final class ErrorCode {
     public static final int TOKEN_INVALID = 401002;
     public static final int TOKEN_MISSING = 401003;
     public static final int AUTH_FAILED = 401004;
+    public static final int ACCOUNT_LOGGED_IN_ELSEWHERE = 401005;
 
     /** 已认证但权限不足（角色不够，如 USER 调写接口）→ HTTP 403 */
     public static final int ACCESS_DENIED = 403001;

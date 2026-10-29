@@ -9,7 +9,6 @@ import com.syt.blog.common.Result;
 import com.syt.blog.DTO.Request.LoginRequest;
 import com.syt.blog.DTO.Request.RegisterRequest;
 import com.syt.blog.DTO.Request.UpdateProfileRequest;
-import com.syt.blog.jooq.tables.pojos.BlogUsers;
 import com.syt.blog.DTO.Mapper.UserMapper;
 import com.syt.blog.service.BlogUserService;
 import com.syt.blog.service.RefreshTokenService;
@@ -45,8 +44,7 @@ public class BlogUserController {
     public Result<LoginResponse> login(@RequestBody @Valid LoginRequest loginRequest,
                                        HttpServletRequest request,
                                        HttpServletResponse response) {
-        BlogUsers blogUsers = UserMapper.INSTANCE.login(loginRequest);
-        LoginResponse loginResponse=blogUserService.login(blogUsers, request,response);
+        LoginResponse loginResponse=blogUserService.login(loginRequest, request,response);
         return Result.success(loginResponse);
     }
 
@@ -69,8 +67,7 @@ public class BlogUserController {
      */
     @PutMapping("/me")
     public Result<UserResponse> update(@RequestBody @Valid UpdateProfileRequest updateProfileRequest) {
-        BlogUsers blogUsers = UserMapper.INSTANCE.updateProfile(updateProfileRequest);
-        UserResponse updatedUser = blogUserService.update(blogUsers);
+        UserResponse updatedUser = blogUserService.update(updateProfileRequest);
         return Result.success(updatedUser);
     }
 
@@ -79,8 +76,7 @@ public class BlogUserController {
      */
     @PostMapping("/register")
     public Result<LoginResponse> register(@RequestBody @Valid RegisterRequest registerRequest) {
-        BlogUsers blogUsers = UserMapper.INSTANCE.register(registerRequest);
-        LoginResponse loginResponse = blogUserService.register(blogUsers);
+        LoginResponse loginResponse = blogUserService.register(registerRequest);
         return Result.success(loginResponse);
 
     }
@@ -102,7 +98,7 @@ public class BlogUserController {
             refreshTokenService.revokeRefreshToken(refreshToken);
             Long tokenVersion=blogUserService.getTokenVersion(userId);
             String newAccessToken = jwtUtils.generateToken(userId, username,tokenVersion);
-            String newRefreshToken = jwtUtils.generateRefreshToken(userId, username);
+            String newRefreshToken = jwtUtils.generateRefreshToken(userId, username,tokenVersion);
 
 
             String userAgent = request.getHeader("User-Agent");

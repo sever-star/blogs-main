@@ -1,6 +1,7 @@
 package com.syt.blog.service;
 
 import com.syt.blog.DTO.Mapper.CommentMapper;
+import com.syt.blog.DTO.Request.PostCommentRequest;
 import com.syt.blog.DTO.Response.CommentsResponse;
 import com.syt.blog.jooq.tables.pojos.BlogComments;
 import com.syt.blog.jooq.tables.pojos.BlogUsers;
@@ -85,13 +86,11 @@ import java.util.*;
             return vo;
         }
 
-        public CommentsResponse createComment(Integer postId, BlogComments comment) {
+        public CommentsResponse createComment(Integer postId, PostCommentRequest request) {
+            BlogComments comment = CommentMapper.INSTANCE.createComment(request);
             BlogPostsRecord post = postRepository.getPostById(postId);
             if (post==null) {
                 throw new IllegalArgumentException("文章不存在");
-            }
-            if(post.getAllowComment()==0){
-                throw new IllegalArgumentException("文章已关闭评论");
             }
             Integer userId= SecurityUtils.currentUserId();
             BlogUsers user=userRepository.findById(userId);

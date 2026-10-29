@@ -63,9 +63,34 @@ public class AiChatService {
     /** 会话列表返回条数上限 */
     private static final int SESSION_LIST_LIMIT = 100;
 
-    /** 消息角色 */
+    /** 消息角色
+     * 用户消息：user
+     * AI助手消息：assistant
+     */
     private static final String ROLE_USER = "user";
     private static final String ROLE_ASSISTANT = "assistant";
+
+    // ---- 后台 AI 调用（生成标题/摘要），记录到 blog_ai_usage ----
+
+    /** 发给模型的正文截断上限，控制 token 成本 */
+    private static final int MAX_INPUT_CHARS = 6000;
+    /** 审计表关联对象类型：文章 */
+    private static final String USAGE_REF_TYPE = "post";
+    private static final String USAGE_TYPE_TITLE = "title";
+    private static final String USAGE_TYPE_SUMMARY = "summary";
+    /** 标题最大长度（截断模型输出，避免超出表字段 varchar(200)） */
+    private static final int TITLE_MAX_OUTPUT_CHARS = 50;
+    /** 摘要最大长度（截断模型输出） */
+    private static final int SUMMARY_MAX_OUTPUT_CHARS = 120;
+
+    private static final String TITLE_SYSTEM_PROMPT = """
+            你是文章标题生成器。阅读正文，生成一个简洁、吸引人的中文标题，不超过 20 字。
+            只输出标题文本，不要引号、不要前缀、不要任何解释。
+            """;
+    private static final String SUMMARY_SYSTEM_PROMPT = """
+            你是文章摘要生成器。阅读正文，用一句话概括文章主旨，不超过 80 字。
+            只输出摘要文本，不要前缀、不要任何解释。
+            """;
 
     private final AiRepository aiRepository;
     private final LlmClient llmClient;
@@ -94,19 +119,6 @@ public class AiChatService {
     public record Owner(Integer userId, String ip) {
     }
 
-    /**
-     * 会话可见范围：登录用户看自己的，游客看本 IP 下未绑定用户的。
-     * <p>
-     * 两者取并集，这样「游客先聊、随后登录」也能接着原会话继续，而不会丢历史。
-     */
-    private Condition ownerCondition(Owner owner) {
-        Condition byUser = owner.userId() != null
-                ? BLOG_AI_SESSIONS.USER_ID.eq(owner.userId())
-                : DSL.falseCondition();
-        Condition byIp = BLOG_AI_SESSIONS.USER_ID.isNull()
-                .and(BLOG_AI_SESSIONS.USER_IP.eq(owner.ip()));
-        return byUser.or(byIp);
-    }
 
     // ==================== 查询类接口 ====================
 
@@ -117,7 +129,7 @@ public class AiChatService {
 
     /** 会话列表（最近活跃在前） */
     public List<AiSessionResponse> listSessions(Owner owner) {
-        return aiRepository.listSessions(ownerCondition(owner), SESSION_LIST_LIMIT).stream()
+        return aiRepository. listSessions(owner, SESSION_LIST_LIMIT).stream()
                 .map(AiMapper.INSTANCE::blogAiSessionsToAiSessionResponse)
                 .toList();
     }
@@ -154,10 +166,12 @@ public class AiChatService {
      * {@code done}（token 数）或 {@code error}（失败原因）。
      */
     public SseEmitter streamChat(Owner owner, AiChatRequest request) {
+        //对游客进行限流
         if (owner.userId() == null) {
             rateLimiter.acquire(owner.ip());
         }
 
+        //获取提问内容和文件
         String rawContent = request.getContent() == null ? "" : request.getContent().trim();
         List<AiChatRequest.Attachment> attachments = request.getAttachments() == null
                 ? List.of()
@@ -166,22 +180,26 @@ public class AiChatService {
             throw new BusinessException(ErrorCode.AI_BAD_REQUEST, "提问内容不能为空");
         }
 
+        //判断用户对话是否存在
         long sessionId = resolveSession(owner, request.getSessionId(), rawContent, attachments);
+        //把标题和文件内容进行拼接
         String question = buildQuestion(rawContent, attachments);
 
         // 用户消息状态直接记完成：它不会失败，失败的是后面的助手回复
         aiRepository.insertMessage(sessionId, ROLE_USER, question, AiRepository.STATUS_DONE);
         aiRepository.touchSession(sessionId);
 
+        //组装对话上下文
         List<LlmClient.ChatMessage> context = buildContext(sessionId);
         // 预插助手消息占位，拿到 id 以便流式结束后回填
         long assistantMessageId = aiRepository.insertMessage(
                 sessionId, ROLE_ASSISTANT, "", AiRepository.STATUS_GENERATING);
-
+        //设 SSE 超时时间
         SseEmitter emitter = new SseEmitter(Duration.ofSeconds(properties.getTimeoutSeconds() + 30).toMillis());
         // 首帧先告知 id：即使生成中途失败，前端也能把这条消息挂到正确位置并支持重试
         send(emitter, "meta", Map.of("sessionId", sessionId, "messageId", assistantMessageId));
 
+        //创建虚拟线程把runStream任务交给虚拟线程，然后直接下一步
         streamExecutor.execute(() -> runStream(emitter, assistantMessageId, context));
         return emitter;
     }
@@ -189,6 +207,7 @@ public class AiChatService {
     /** 在虚拟线程中执行生成，把增量推给前端并回填落库 */
     private void runStream(SseEmitter emitter, long messageId, List<LlmClient.ChatMessage> context) {
         StringBuilder generated = new StringBuilder();
+
         try {
             int tokens = llmClient.streamChat(context, delta -> {
                 generated.append(delta);
@@ -327,6 +346,84 @@ public class AiChatService {
             return true;
         }
         return session.getUserId() == null && owner.ip().equals(session.getUserIp());
+    }
+
+    // ==================== 后台 AI 调用（标题/摘要） ====================
+
+    /**
+     * 生成文章标题：调模型非流式补全 + 记审计表，返回标题文本。
+     * <p>
+     * 与流式对话不同：不建会话、不进用户对话列表，只记 blog_ai_usage。
+     * 生成时文章尚未落库，refId 传 null。任何失败（含未配置 Key）都记 status=0 后抛出，
+     * 由前端提示用户重试或手填——摘要/标题不影响文章提交主流程，但调用本身要有审计。
+     */
+    public String generateTitle(Integer userId, String ip, String contentMd) {
+        String input = truncate(contentMd, MAX_INPUT_CHARS);
+        List<LlmClient.ChatMessage> messages = List.of(
+                LlmClient.ChatMessage.system(TITLE_SYSTEM_PROMPT),
+                LlmClient.ChatMessage.user(input));
+        return runAndRecord(USAGE_TYPE_TITLE, userId, ip, input, messages, TITLE_MAX_OUTPUT_CHARS);
+    }
+
+    /**
+     * 生成文章摘要：可带标题作为上下文，调模型非流式补全 + 记审计表，返回摘要文本。
+     */
+    public String generateSummary(Integer userId, String ip, String title, String contentMd) {
+        String body = truncate(contentMd, MAX_INPUT_CHARS);
+
+        StringBuilder user = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+            user.append("标题：").append(title).append("\n\n");
+        }
+        user.append("正文：").append(body);
+        String input = user.toString();
+
+        List<LlmClient.ChatMessage> messages = List.of(
+                LlmClient.ChatMessage.system(SUMMARY_SYSTEM_PROMPT),
+                LlmClient.ChatMessage.user(input));
+        return runAndRecord(USAGE_TYPE_SUMMARY, userId, ip, input, messages, SUMMARY_MAX_OUTPUT_CHARS);
+    }
+
+    /**
+     * 通用：调一次非流式补全并把调用记进 blog_ai_usage。
+     * <p>
+     * 成功 → 记 status=1（含 output/tokens）并返回截断后的输出；
+     * 失败 → 记 status=0（含 error_message）后抛出 BusinessException，前端据此提示。
+     */
+    private String runAndRecord(String type, Integer userId, String ip, String input,
+                                List<LlmClient.ChatMessage> messages, int maxOutChars) {
+        //记录失败数据
+        if (!llmClient.isConfigured()) {
+            aiRepository.insertUsage(userId, ip, type, USAGE_REF_TYPE, null, input, null,
+                    0, properties.getModel(), AiRepository.STATUS_FAILED, "AI 服务未配置");
+            throw new BusinessException(ErrorCode.AI_UNAVAILABLE, "AI 服务未配置");
+        }
+        try {
+            LlmClient.Completion completion = llmClient.complete(messages);
+            String output = completion.content() == null ? "" : completion.content().trim();
+            if (output.length() > maxOutChars) {
+                output = output.substring(0, maxOutChars);
+            }
+            aiRepository.insertUsage(userId, ip, type, USAGE_REF_TYPE, null, input, output,
+                    completion.tokens(), properties.getModel(), AiRepository.STATUS_DONE, null);
+            return output;
+        } catch (Exception e) {
+            String reason = e instanceof BusinessException be ? be.getMessage() : e.getMessage();
+            aiRepository.insertUsage(userId, ip, type, USAGE_REF_TYPE, null, input, null,
+                    0, properties.getModel(), AiRepository.STATUS_FAILED, reason);
+            if (e instanceof BusinessException be) {
+                throw be;
+            }
+            throw new BusinessException(ErrorCode.AI_UNAVAILABLE, "AI 生成失败：" + e.getMessage());
+        }
+    }
+
+    /** 截断字符串到最大长度，null 视为空串 */
+    private static String truncate(String s, int max) {
+        if (s == null) {
+            return "";
+        }
+        return s.length() > max ? s.substring(0, max) : s;
     }
 
     // ==================== SSE 输出 ====================

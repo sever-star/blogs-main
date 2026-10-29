@@ -30,4 +30,10 @@ public class RefreshTokenRepository {
                 .and(BLOG_REFRESH_TOKENS.REVOKED.eq(0))  // 只动还没撤的
                 .execute();
     }
+
+    public void deletezoerrevoked() {
+        dsl.deleteFrom(BLOG_REFRESH_TOKENS)
+                .where(BLOG_REFRESH_TOKENS.REVOKED.eq(1).and(BLOG_REFRESH_TOKENS.EXPIRES_AT.le(LocalDateTime.now())))
+                .execute();
+    }
 }

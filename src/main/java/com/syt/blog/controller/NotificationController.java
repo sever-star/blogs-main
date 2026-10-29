@@ -6,6 +6,7 @@ import com.syt.blog.service.NotificationService;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 站内通知接口（均需登录，仅本人可见自己的通知）。
@@ -29,8 +30,16 @@ public class NotificationController {
 
     /** 未读数（供顶部铃铛徽标） */
     @GetMapping("/unread-count")
-    public Result<Map<String, Long>> unreadCount() {
-        return Result.success(Map.of("count", notificationService.unreadCount()));
+    public Result<Map<String, Object>> unreadCount() {
+        Map<String, Long> byType  = notificationService.unreadCount();
+        Long total=0l;
+        for(Long l:byType.values()){
+           if (l!=null)total+=l;
+        }
+        return Result.success(Map.of(
+                "count",total,
+                "byType",byType
+        ));
     }
 
     /** 标记单条已读 */
@@ -44,6 +53,11 @@ public class NotificationController {
     @PutMapping("/read-all")
     public Result<Void> markAllRead() {
         notificationService.markAllRead();
+        return Result.success();
+    }
+    @DeleteMapping("/{id}")
+    public Result delete(@PathVariable Long id) {
+        notificationService.delete(id);
         return Result.success();
     }
 }

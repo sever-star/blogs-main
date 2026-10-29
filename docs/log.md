@@ -6,6 +6,101 @@
 
 ---
 
+## 2026-10-24 · AI 对话长时间空闲后提问报 500：`HttpMediaTypeNotAcceptableException` + `ResourceNotFoundException: 会话不存在或无权访问`
+
+### 现象
+
+登录状态下打开一个 AI 会话页面，长时间不操作（>15 分钟）后再提问，后端抛两个异常：
+
+- 日志**第一条**栈：`org.springframework.web.HttpMediaTypeNotAcceptableException: No acceptable representation`（位于 `AbstractMessageConverterMethodProcessor.writeWithMessageConverters`）；
+- **root cause**：`com.syt.blog.common.ResourceNotFoundException: 会话不存在或无权访问`（位于 `AiChatService.requireOwnedSession` → `resolveSession` → `streamChat` → `BlogAiController.chat`）。
+
+前端表现为提问失败。
+
+### 定位过程
+
+**第 1 步：先分清哪条是根因、哪条是次生。**
+日志先打 `HttpMediaTypeNotAcceptableException`，再以 `ResourceNotFoundException ... with root cause` 收尾——前者是 Spring 在「处理后者」时自己又炸的，真正的根因是 `ResourceNotFoundException`。
+
+**第 2 步：为什么会抛「会话不存在或无权访问」？追 `requireOwnedSession` 的归属判定。**
+`AiChatService.isOwnedBy`：
+
+```java
+if (owner.userId() != null && owner.userId().equals(session.getUserId())) return true;
+return session.getUserId() == null && owner.ip().equals(session.getUserIp());
+```
+
+该会话是登录时建的，`blog_ai_sessions.user_id` 非空；而本次请求的 `owner.userId()` 是 null（见第 3 步）→ 两个分支都不命中 → 抛 404。
+
+**第 3 步：`owner.userId()` 为什么是 null？追 token 生命周期。**
+
+- `application-dev.yaml` `access-expiration: 900000` —— access token 只有 **15 分钟**，「长时间不操作」即超过此窗口；
+- `JwtAuthenticationFilter`：token 过期时只 `fail(request, TOKEN_EXPIRED, ...)` 写 request attribute、**不写认证**、继续放行（设计上为不误伤游客路径）；
+- `SecurityConfig` 把 `/api/ai/**` 设为 `permitAll`，过期 token **不会触发 EntryPoint 返回 401**，请求以匿名继续；
+- `BlogAiController.resolveOwner` → `SecurityUtils.currentUser()` 返回 null → `owner.userId = null`。
+
+链路坐实：**access token 过期 → 请求匿名降级 → 匿名 owner 访问不到 user_id 绑定的会话 → 404。**
+
+**第 4 步：那 `HttpMediaTypeNotAcceptableException` 又是哪来的？**
+`chat()` 原声明 `@PostMapping(value = "/chat", produces = TEXT_EVENT_STREAM_VALUE)`，把「可生产媒体类型」锁死成 `{text/event-stream}`。而 `ResourceNotFoundException` 在 `new SseEmitter(...)` **之前**抛出（`resolveSession` 在建 emitter 之前跑），响应还处在普通 HTTP 模式，于是走 `GlobalExceptionHandler.handleNotFound` 想把 404 写成 JSON `Result`——但没有转换器能把 `Result` 写成 `text/event-stream` → `HttpMediaTypeNotAcceptableException`。
+对比：流式生成**中途**失败（emitter 已建，`runStream` 里 `send("error") + complete()`）从不报这个 500，因为根本不经过 `GlobalExceptionHandler`。
+
+### 根因（两层叠加）
+
+1. **主因**：AI 接口 `permitAll` + 过期 token 静默降级为匿名，匿名 owner 命中不了 user_id 绑定的会话 → `ResourceNotFoundException`；
+2. **次生**：`chat()` 的 `produces=text/event-stream` 锁死可生产媒体类型，导致在 emitter 建立前抛出的任何业务异常（404/429/400）都无法被全局处理器序列化成 JSON → `HttpMediaTypeNotAcceptableException`，反而盖住了真正的 root cause。
+
+### 修复（已提交）
+
+1. **Bug 2**：去掉 `chat()` 的 `produces = TEXT_EVENT_STREAM_VALUE`，仅保留 `@PostMapping(value = "/chat")`。SseEmitter 成功路径不受影响（`ResponseBodyEmitterReturnValueHandler` 自行设 `Content-Type: text/event-stream`，不依赖 `produces`）；同时让 `@Valid` 校验失败、限流、空内容等早期异常也能正常序列化为 JSON。
+
+2. **Bug 1**：在 `resolveOwner`（所有 AI 接口共用的归属解析）里读 `AuthFailure`，命中即抛业务异常，交全局处理器映射成 HTTP 401，由前端刷新 token 后重试：
+
+```java
+private AiChatService.Owner resolveOwner(HttpServletRequest request) {
+    AuthFailure failure = AuthFailure.of(request);
+    if (failure != null) {
+        throw new BusinessException(failure.code(), failure.message());
+    }
+    AuthUser user = SecurityUtils.currentUser();
+    Integer userId = user == null ? null : user.id();
+    return new AiChatService.Owner(userId, clientIp(request));
+}
+```
+
+- 检查放在 `resolveOwner` 而非单个接口里，**`chat` / `listSessions` / `createSession` / `deleteSession` / `listMessages` 全部覆盖**，token 失效时一致返回 401 触发刷新；
+- `AuthFailure.of(request)` 仅在「带了 token 但失效」（过期/无效/禁用）时非空；**真游客无 Authorization 头 → 过滤器不写 AuthFailure → 返回 null → 照常以游客身份进入**，AI 对游客开放的设计不受影响；
+- `failure.code()` 为 `TOKEN_EXPIRED(401001)` / `TOKEN_INVALID(401002)` / `ACCOUNT_DISABLED(403002)`，经 `toHttpStatus` 映射 401/403，前端 401 拦截器 → `/api/auth/refresh` → 重试，此时 token 有效 → `resolveOwner` 拿到 user → 归属匹配 → 正常对话；
+- 同步更新 `BlogAiController` 类与 `resolveOwner` 的 Javadoc：原「全程不返回 401」仅对真游客成立，失效 token 主动 401。
+
+### 验证
+
+```bash
+./mvnw -o compile -DskipTests
+# BUILD SUCCESS（仅 Lombok/Unsafe 的 deprecation 警告，无错误）
+```
+
+预期端到端流程（待浏览器侧确认）：登录 → 会话页空闲 >15min → 提问 → 后端返回 HTTP 401 `{"code":401001,"message":"Token 已过期，请刷新"}` → 前端 401 拦截器自动调 `/api/auth/refresh` → 重试 chat → 200 正常流式回复。编译已过，运行时链路需在前端联调时在 Network 面板确认 401 响应体为 JSON（见下「遗留」）。
+
+### 遗留 / 待确认
+
+- **前端 Accept 头依赖**：401 以 JSON 返回，要求前端 `/api/ai/chat` 的 fetch `Accept` 含 `application/json` 或 `*/*`。fetch 默认 `*/*` 通常满足；若前端显式设了 `Accept: text/event-stream` 且不含 `*/*`，401 仍会触发 `HttpMediaTypeNotAcceptableException`。建议在浏览器 Network 面板确认该 401 响应体是 JSON 而非 406 类错误。
+
+### 同类问题排查
+
+排查全仓 `SecurityUtils.currentUser()`（可空版）的所有调用点，判定标准：**在 permitAll 路径上，过期 token 静默降级为匿名后，是否导致硬报错或访问不到用户绑定资源**。
+
+| 位置 | 路径 | permitAll | `currentUser()` 用途 | 匿名降级后果 | 同类？ |
+|---|---|---|---|---|---|
+| `BlogAiController.resolveOwner` | `/api/ai/**` | 是 | 会话归属 user_id | 命中不了 user_id 绑定会话 → 404 | ✅ 是（已修） |
+| `PostRepository.getPostDetail:254` | `GET /api/posts/**` | 是 | 设 liked/favorited | 两字段不设（NON_NULL 不序列化），详情照常 200 | ❌ 否（代码注释明说设计如此） |
+| `BlogPostCommentService.listComments:39` | `GET /api/posts/*/comments` | 是 | 标记「我点过赞的评论」 | likedIds 为空，评论列表照常 200 | ❌ 否 |
+| `ViewCountService.recordView:50` | `GET /api/posts/**` | 是 | 作者不计数 + 按 user 去重 | 降为按 IP 去重，且整方法 fail-open | ❌ 否 |
+
+**结论：同类问题只存在于 AI 模块**。其余三处都在 permitAll GET 路径上读公开内容，`currentUser()` 仅做个性化点缀，null 化时良性退化、不报错。写操作（点赞/收藏/发评论/评论点赞）在 `SecurityConfig` 里都是 `authenticated()`，token 过期走 `JwtAuthenticationEntryPoint` 正常 401，不走静默降级，故不受影响。
+
+---
+
 ## 2026-10-18 · 开发环境 · Claude Code MCP（context7）启动失败：cmd 无法解析 PATH 中的孤立引号 + npm 镜像源停服
 
 ### 现象

@@ -1,7 +1,7 @@
 # 数据库设计评审 · blog 系统
 
 > 版本：v1.0　|　日期：2026-09-22
-> 对象：PostgreSQL `public` schema（jOOQ 已生成 22 张表）
+> 对象：PostgreSQL `public` schema（jOOQ 已生成 20 张表）
 > 结论性质：仅记录评审建议，**不修改任何库表**；落地 SQL 见 `supplementary-schema.sql`
 
 ---
@@ -11,7 +11,7 @@
 这是一份**超出毕设平均水准**的库表设计，主要亮点：
 
 - 文章表拆分 `content_md` / `content_html` / `toc_html`，预渲染 + 目录，阅读体验好
-- 软删除 `deleted_at`、文章版本 `blog_post_versions`、定时发布 `blog_scheduled_posts`
+- 软删除 `deleted_at`、文章版本 `blog_post_versions`、定时发布 `scheduled_at`
 - AI 采用「会话 `blog_ai_sessions` + 消息 `blog_ai_messages`」多轮结构，优于单条日志
 - 三类日志（登录 / 操作 / 访问）、热词 `blog_search_keywords`、通知、友链、用户偏好齐全
 - 刷新令牌带 `device_id` / `revoked`，安全设计到位
@@ -20,12 +20,12 @@
 
 ---
 
-## 1. 现有表清单（22 张）
+## 1. 现有表清单（20 张）
 
 | 分类 | 表 |
 |---|---|
-| 用户 | blog_users、blog_user_settings、blog_refresh_tokens |
-| 内容 | blog_posts、blog_post_versions、blog_scheduled_posts |
+| 用户 | blog_users、blog_refresh_tokens |
+| 内容 | blog_posts、blog_post_versions |
 | 组织 | blog_categories、blog_tags、blog_post_tags |
 | 互动 | blog_comments、blog_comment_likes、blog_post_likes、blog_post_favorites |
 | AI | blog_ai_sessions、blog_ai_messages |

@@ -1,6 +1,7 @@
 package com.syt.blog.service;
 
 import com.syt.blog.DTO.Mapper.CategoryMapper;
+import com.syt.blog.DTO.Request.CategoryRequest;
 import com.syt.blog.DTO.Response.CategoryResponse;
 import com.syt.blog.common.DuplicateNameException;
 import com.syt.blog.common.PageResult;
@@ -36,7 +37,8 @@ public class BlogCategoryService {
     }
 
     @Transactional
-    public CategoryResponse createCategory(BlogCategories blogCategories) {
+    public CategoryResponse createCategory(CategoryRequest categoryRequest) {
+        BlogCategories blogCategories = CategoryMapper.INSTANCE.categoryRequestToBlogCategories(categoryRequest);
         if (categoryRepository.existsByName(blogCategories.getName())) {
             throw new DuplicateNameException("分类名称已存在: " + blogCategories.getName());
         }
@@ -102,15 +104,16 @@ public class BlogCategoryService {
     /**
      * 更新分类
      * @param id 分类 ID
-     * @param blogCategories 分类 DTO
+     * @param categoryRequest 分类请求 DTO
      * @return 更新后的分类
      */
     @Transactional
-    public CategoryResponse updateCategory(Integer id, BlogCategories blogCategories) {
+    public CategoryResponse updateCategory(Integer id, CategoryRequest categoryRequest) {
         BlogCategories blogCategory = blogCategoriesDao.findById(id);
         if (blogCategory == null) {
             throw new ResourceNotFoundException("分类不存在，ID: " + id);
         }
+        BlogCategories blogCategories = CategoryMapper.INSTANCE.categoryRequestToBlogCategories(categoryRequest);
         boolean exists = categoryRepository.existsByNameAndIdNot(blogCategories.getName(), id);
         if (exists) {
             throw new DuplicateNameException("分类名称已存在: " + blogCategories.getName());

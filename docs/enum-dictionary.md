@@ -21,12 +21,7 @@
 
 | 表 | 字段 | 默认 | 语义 | 确认 |
 |---|---|---|---|---|
-| blog_posts | is_top | 0 | 0=不置顶 / 1=置顶 | ✅ |
-| blog_posts | allow_comment | 1 | 0=禁评 / 1=允许评论 | ✅ |
 | blog_comments | is_admin | 0 | 0=普通 / 1=博主回复 | ✅ |
-| blog_user_settings | comment_notify | — | 0=关 / 1=开 | ✅ |
-| blog_user_settings | like_notify | — | 0=关 / 1=开 | ✅ |
-| blog_user_settings | email_notify | — | 0=关 / 1=开 | ✅ |
 | blog_notifications | is_read | 0 | 0=未读 / 1=已读 | ✅ |
 | blog_refresh_tokens | revoked | 0 | 0=有效 / 1=已吊销 | ✅ |
 
@@ -74,14 +69,6 @@
 | 0 | 失败 |
 | 1 | 成功 |
 | 2 | 生成中（流式中断） |
-
-### 2.6 blog_scheduled_posts.status　✅（默认 0）
-
-| 值 | 语义 |
-|---|---|
-| 0 | 待发布 |
-| 1 | 已发布 |
-| 2 | 已取消 |
 
 ### 2.7 blog_login_logs.status　✅（默认 1）
 

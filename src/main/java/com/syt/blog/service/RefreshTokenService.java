@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -27,11 +28,12 @@ public class RefreshTokenService {
         refreshToken.setDeviceId(deviceId);
         refreshToken.setUserAgent(userAgent);
         refreshToken.setIp(ip);
-        refreshToken.setExpiresAt(LocalDateTime.now().plusSeconds(jwtUtils.getRefreshExpiration()));
+        refreshToken.setExpiresAt(LocalDateTime.now().plus(Duration.ofMillis(jwtUtils.getRefreshExpiration())));
         refreshToken.setRevoked(0);
         refreshTokensDao.insert(refreshToken);
         return refreshToken;
     }
+
 
     public BlogRefreshTokens verifyRefreshToken(String token) {
         BlogRefreshTokens refreshToken = refreshTokenRepository.findByToken(token);
@@ -60,9 +62,7 @@ public class RefreshTokenService {
      */
     public void revokeRefreshToken(String token) {
         BlogRefreshTokens refreshToken = refreshTokenRepository.findByToken(token);
-        if (refreshToken == null) {
-            throw new RuntimeException("Refresh token 不存在");
-        }
+        verifyRefreshToken(token);
         refreshToken.setRevoked(1);
         refreshToken.setUpdatedAt(LocalDateTime.now());
         refreshTokensDao.update(refreshToken);
@@ -72,4 +72,7 @@ public class RefreshTokenService {
     }
 
 
+    public void deleterevokedNO() {
+        refreshTokenRepository.deletezoerrevoked();
+    }
 }

@@ -130,6 +130,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/notifications/{id}/read").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/notifications/read-all").authenticated()
 
+                        .requestMatchers(HttpMethod.POST, "/api/follows/*").authenticated()
+                        .requestMatchers(HttpMethod.DELETE, "/api/follows/*").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/follows/*/status").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/follows/mine").authenticated()
+
                         // ── 需博主/管理员 ──────────────────────────────────────────
                         // 用 hasAuthority 而非 hasRole：后者会自动加 ROLE_ 前缀，
                         // 而 blog_users.role 存的就是 ADMIN，用 hasRole 会永远拒绝

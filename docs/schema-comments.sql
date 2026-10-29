@@ -37,15 +37,12 @@ COMMENT ON COLUMN blog_posts.title               IS '标题';
 COMMENT ON COLUMN blog_posts.content_md          IS '正文（Markdown 源文）';
 COMMENT ON COLUMN blog_posts.content_html        IS '正文（Markdown 渲染后的 HTML）';
 COMMENT ON COLUMN blog_posts.summary             IS '摘要';
-COMMENT ON COLUMN blog_posts.toc_html            IS '目录 HTML';
 COMMENT ON COLUMN blog_posts.cover_image         IS '封面图 URL';
 COMMENT ON COLUMN blog_posts.view_count          IS '浏览数';
 COMMENT ON COLUMN blog_posts.like_count          IS '点赞数';
 COMMENT ON COLUMN blog_posts.fav_count           IS '收藏数';
-COMMENT ON COLUMN blog_posts.reading_time        IS '预计阅读时长（分钟）';
 COMMENT ON COLUMN blog_posts.status              IS '发布状态：0=草稿 1=已发布 2=已下架';
-COMMENT ON COLUMN blog_posts.is_top              IS '是否置顶：0=否 1=是';
-COMMENT ON COLUMN blog_posts.allow_comment       IS '是否允许评论：0=否 1=是';
+COMMENT ON COLUMN blog_posts.scheduled_at        IS '计划发布时间（非空且 status=0 表示定时待发布）';
 COMMENT ON COLUMN blog_posts.created_at          IS '创建时间';
 COMMENT ON COLUMN blog_posts.updated_at          IS '更新时间';
 COMMENT ON COLUMN blog_posts.deleted_at          IS '软删除时间（NULL=未删除）';
@@ -104,17 +101,6 @@ COMMENT ON COLUMN blog_post_embeddings.embedding IS '向量 vector(1024)（余�
 COMMENT ON COLUMN blog_post_embeddings.created_at IS '创建时间';
 
 -- -------------------------------------------------------------
--- blog_scheduled_posts  定时发布表
--- -------------------------------------------------------------
-COMMENT ON TABLE  blog_scheduled_posts           IS '文章定时发布表';
-COMMENT ON COLUMN blog_scheduled_posts.id        IS '任务ID';
-COMMENT ON COLUMN blog_scheduled_posts.post_id   IS '文章ID（blog_posts.id）';
-COMMENT ON COLUMN blog_scheduled_posts.scheduled_at IS '计划发布时间';
-COMMENT ON COLUMN blog_scheduled_posts.status    IS '任务状态：0=待发布 1=已发布 2=已取消';
-COMMENT ON COLUMN blog_scheduled_posts.created_at IS '创建时间';
-COMMENT ON COLUMN blog_scheduled_posts.updated_at IS '更新时间';
-
--- -------------------------------------------------------------
 -- blog_comments  评论表
 -- -------------------------------------------------------------
 COMMENT ON TABLE  blog_comments                  IS '评论表';
@@ -159,19 +145,6 @@ COMMENT ON COLUMN blog_post_favorites.id         IS '收藏记录ID';
 COMMENT ON COLUMN blog_post_favorites.post_id    IS '文章ID（blog_posts.id）';
 COMMENT ON COLUMN blog_post_favorites.user_id    IS '用户ID（blog_users.id）';
 COMMENT ON COLUMN blog_post_favorites.created_at IS '创建时间';
-
--- -------------------------------------------------------------
--- blog_user_settings  用户偏好设置表
--- -------------------------------------------------------------
-COMMENT ON TABLE  blog_user_settings             IS '用户偏好设置表';
-COMMENT ON COLUMN blog_user_settings.id          IS '设置记录ID';
-COMMENT ON COLUMN blog_user_settings.user_id     IS '用户ID（blog_users.id）';
-COMMENT ON COLUMN blog_user_settings.theme       IS '主题';
-COMMENT ON COLUMN blog_user_settings.language    IS '语言';
-COMMENT ON COLUMN blog_user_settings.comment_notify IS '评论通知：0=关 1=开';
-COMMENT ON COLUMN blog_user_settings.like_notify IS '点赞通知：0=关 1=开';
-COMMENT ON COLUMN blog_user_settings.email_notify IS '邮件通知：0=关 1=开';
-COMMENT ON COLUMN blog_user_settings.updated_at  IS '更新时间';
 
 -- -------------------------------------------------------------
 -- blog_notifications  站内通知表

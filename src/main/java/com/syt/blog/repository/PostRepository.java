@@ -5,14 +5,12 @@ import com.syt.blog.DTO.Response.*;
 
 import com.syt.blog.common.PageResult;
 import com.syt.blog.jooq.tables.BlogPosts;
-import com.syt.blog.jooq.tables.records.BlogPostTagsRecord;
 import com.syt.blog.jooq.tables.records.BlogPostsRecord;
 import com.syt.blog.util.SecurityUtils;
 import org.jooq.*;
 import org.jooq.Record;
 import org.jooq.impl.DSL;
 
-import org.jooq.impl.QOM;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -41,6 +39,48 @@ public class PostRepository {
         return dsl.selectFrom(BLOG_POSTS).where(BLOG_POSTS.ID.eq(postId)).fetchOne();
     }
 
+    /**
+     * 插入文章并返回自增主键。
+     * <p>
+     * MapStruct 默认 new 出来的 Record 未绑定 Configuration，直接 insert() 会抛
+     * "No JDBC Connection configured"；Record 实现了 Attachable，在此 attach 上即可。
+     * 该细节收敛在 repository，避免 service 持有 DSLContext。
+     */
+    public Integer insertPost(BlogPostsRecord record) {
+        record.attach(dsl.configuration());
+        record.insert();
+        return record.getId();
+    }
+
+    /**
+     * 批量插入文章-标签关联（createPost 时随文章一起落库）。
+     */
+    public void saveTags(Integer postId, List<Integer> tagIds) {
+        if (tagIds == null || tagIds.isEmpty()) {
+            return;
+        }
+        BatchBindStep batch = dsl.batch(dsl.insertInto(BLOG_POST_TAGS,
+                BLOG_POST_TAGS.POST_ID, BLOG_POST_TAGS.TAG_ID).values(postId, null));
+        for (Integer tagId : tagIds) {
+            batch.bind(postId, tagId);
+        }
+        batch.execute();
+    }
+
+    /**
+     * 审核落库：更新 reviewer / status / review_status / reviewed_at。
+     * approve/reject 的 record.update() 下沉到此，避免 service 写库。
+     */
+    public void updateReview(Integer id, Integer reviewerId, short status, short reviewStatus, java.time.LocalDateTime reviewedAt) {
+        dsl.update(BLOG_POSTS)
+                .set(BLOG_POSTS.REVIEWER_ID, reviewerId)
+                .set(BLOG_POSTS.STATUS, status)
+                .set(BLOG_POSTS.REVIEW_STATUS, reviewStatus)
+                .set(BLOG_POSTS.REVIEWED_AT, reviewedAt)
+                .where(BLOG_POSTS.ID.eq(id))
+                .execute();
+    }
+
 
     public PostResponse getPostAndCategory(Integer postid) {
         var VO=dsl.select(
@@ -51,13 +91,11 @@ public class PostRepository {
                 BLOG_POSTS.COVER_IMAGE,
                 BLOG_POSTS.USER_ID,
                 BLOG_USERS.NICKNAME.as("authorNickname"),   // 作者昵称：用别名平铺
-                BLOG_POSTS.READING_TIME,
                 BLOG_POSTS.VIEW_COUNT,
                 BLOG_POSTS.LIKE_COUNT,
                 BLOG_POSTS.FAV_COUNT,
                 BLOG_POSTS.STATUS,
-                BLOG_POSTS.ALLOW_COMMENT,
-                BLOG_POSTS.IS_TOP,
+                BLOG_POSTS.SCHEDULED_AT,
                 BLOG_POSTS.CREATED_AT,
                 BLOG_POSTS.UPDATED_AT,
                 // 分类：嵌套对象用点号别名
@@ -85,6 +123,14 @@ public class PostRepository {
 
 
     public List<PostResponse> findPostCond(Integer categoryId, Integer tagId, String keyword) {
+        return findPostCond(categoryId, tagId, keyword, null,null);
+    }
+
+    /**
+     * 公开文章列表查询；likedByUserId 非空时额外约束「该用户点过赞」并按点赞时间倒序。
+     * 我赞过的文章复用此方法，避免重复 SELECT / 标签 / 评论数逻辑——点赞列表只是多一个 join。
+     */
+    public List<PostResponse> findPostCond(Integer categoryId, Integer tagId, String keyword, Integer likedByUserId,Integer favoriteByUserId) {
         // 构建查询条件
         Condition noCondition = DSL.noCondition();
         if (categoryId != null) {
@@ -93,20 +139,18 @@ public class PostRepository {
         if (keyword != null) {
             noCondition = noCondition.and(BLOG_POSTS.TITLE.like("%" + keyword + "%"));
         }
-        var VO=dsl.select(
+        var fromStep = dsl.select(
                 BLOG_POSTS.ID,
                 BLOG_POSTS.USER_ID,
                 BLOG_POSTS.TITLE,
                 BLOG_POSTS.SUMMARY,
                 BLOG_POSTS.CONTENT_MD,
                 BLOG_POSTS.COVER_IMAGE,
-                BLOG_POSTS.READING_TIME,
                 BLOG_POSTS.VIEW_COUNT,
                 BLOG_POSTS.LIKE_COUNT,
                 BLOG_POSTS.FAV_COUNT,
                 BLOG_POSTS.STATUS,
-                BLOG_POSTS.ALLOW_COMMENT,
-                BLOG_POSTS.IS_TOP,
+                BLOG_POSTS.SCHEDULED_AT,
                 BLOG_POSTS.CREATED_AT,
                 BLOG_POSTS.UPDATED_AT,
                 // 分类：嵌套对象用点号别名
@@ -115,21 +159,28 @@ public class PostRepository {
                 BLOG_USERS.NICKNAME.as("authorNickname"),// 作者昵称：用别名平铺
                 BLOG_USERS.AVATAR.as("authorAvatar")// 作者头像：用别名平铺
         ).from(BLOG_POSTS).join(BLOG_USERS).on(BLOG_POSTS.USER_ID.eq(BLOG_USERS.ID)).
-                leftJoin(BLOG_CATEGORIES).on(BLOG_POSTS.CATEGORY_ID.eq(BLOG_CATEGORIES.ID)).
+                leftJoin(BLOG_CATEGORIES).on(BLOG_POSTS.CATEGORY_ID.eq(BLOG_CATEGORIES.ID));
+        // 我赞过的文章：inner join 当前用户的点赞记录，只取赞过的；其余场景不加此 join
+        if (likedByUserId != null) {
+            fromStep = fromStep.join(BLOG_POST_LIKES)
+                    .on(BLOG_POSTS.ID.eq(BLOG_POST_LIKES.POST_ID).and(BLOG_POST_LIKES.USER_ID.eq(likedByUserId)));
+        }
+        if (favoriteByUserId != null) {
+            fromStep = fromStep.join(BLOG_POST_FAVORITES)
+                    .on(BLOG_POSTS.ID.eq(BLOG_POST_FAVORITES.POST_ID).and(BLOG_POST_FAVORITES.USER_ID.eq(favoriteByUserId)));
+        }
+        var cond = fromStep
                 // 公开列表只回已发布（status=1）且未软删的——草稿(0)/已下架(2)不外露，与 API 文档一致
-                where(noCondition)
-                        .and(BLOG_POSTS.STATUS.eq((short) 1))
-                        .and(BLOG_POSTS.DELETED_AT.isNull())
-                .fetch(r->{
-                    PostResponse  postResponse = r.into(PostResponse.class);
-                    CategoryResponse categoryResponse = new CategoryResponse();
-                    categoryResponse.setId(r.get("category.id",Integer.class));
-                    categoryResponse.setName(r.get("category.name",String.class));
-                    if (categoryResponse != null&&postResponse.getId()!=null) {
-                        postResponse.setCategory(categoryResponse);
-                    }
-                    return postResponse;
-                });
+                .where(noCondition)
+                .and(BLOG_POSTS.STATUS.eq((short) 1))
+                .and(BLOG_POSTS.DELETED_AT.isNull());
+        // 点赞列表按点赞时间倒序；普通列表用自然顺序
+        List<PostResponse> VO;
+        if (likedByUserId != null) {
+            VO = cond.orderBy(BLOG_POST_LIKES.CREATED_AT.desc()).fetch(r -> mapRow(r));
+        } else {
+            VO = cond.fetch(r -> mapRow(r));
+        }
 
         // 获取所有查询到的帖子ID
         List<Integer> postIds = VO.stream().map(PostResponse::getId).toList();
@@ -157,6 +208,18 @@ public class PostRepository {
         return VO;
     }
 
+    /** findPostCond 系列查询的行映射：Record → PostResponse，并填充 category 嵌套对象 */
+    private static PostResponse mapRow(Record r) {
+        PostResponse postResponse = r.into(PostResponse.class);
+        CategoryResponse categoryResponse = new CategoryResponse();
+        categoryResponse.setId(r.get("category.id", Integer.class));
+        categoryResponse.setName(r.get("category.name", String.class));
+        if (categoryResponse != null && postResponse.getId() != null) {
+            postResponse.setCategory(categoryResponse);
+        }
+        return postResponse;
+    }
+
     /**
      * 我的文章：本人全部稿件（草稿/待审核/已发布），未软删，按更新时间倒序。
      * 与 findPostCond 的区别：按 USER_ID 过滤且不过滤状态——草稿只有作者能看到。
@@ -168,7 +231,6 @@ public class PostRepository {
                 BLOG_POSTS.TITLE,
                 BLOG_POSTS.SUMMARY,
                 BLOG_POSTS.COVER_IMAGE,
-                BLOG_POSTS.READING_TIME,
                 BLOG_POSTS.VIEW_COUNT,
                 BLOG_POSTS.LIKE_COUNT,
                 BLOG_POSTS.FAV_COUNT,
@@ -176,8 +238,7 @@ public class PostRepository {
                 // 审核状态与发布状态是两个维度：status=0/1/2（草稿/已发布/已下架），
                 // review_status=0/1/2（待审核/通过/拒绝），我的文章页两者都要展示
                 BLOG_POSTS.REVIEW_STATUS.as("reviewStatus"),
-                BLOG_POSTS.ALLOW_COMMENT,
-                BLOG_POSTS.IS_TOP,
+                BLOG_POSTS.SCHEDULED_AT,
                 BLOG_POSTS.CREATED_AT,
                 BLOG_POSTS.UPDATED_AT,
                 BLOG_CATEGORIES.ID.as("category.id"),
@@ -223,13 +284,11 @@ public class PostRepository {
                 BLOG_POSTS.CONTENT_MD,
                 BLOG_POSTS.CONTENT_HTML,
                 BLOG_POSTS.COVER_IMAGE,
-                BLOG_POSTS.READING_TIME,
                 BLOG_POSTS.VIEW_COUNT,
                 BLOG_POSTS.LIKE_COUNT,
                 BLOG_POSTS.FAV_COUNT,
                 BLOG_POSTS.STATUS,
-                BLOG_POSTS.ALLOW_COMMENT,
-                BLOG_POSTS.IS_TOP,
+                BLOG_POSTS.SCHEDULED_AT,
                 BLOG_POSTS.CREATED_AT,
                 BLOG_POSTS.UPDATED_AT,
                 BLOG_CATEGORIES.ID.as("category.id"),
@@ -282,11 +341,9 @@ public class PostRepository {
                 // 与正文一起刷新渲染 HTML（请求未带 contentHtml 时为详情页读出的原值，不会误清）
                 set(BLOG_POSTS.CONTENT_HTML, postResponse.getContentHtml()).
                 set(BLOG_POSTS.COVER_IMAGE, postResponse.getCoverImage()).
-                set(BLOG_POSTS.ALLOW_COMMENT, postResponse.getAllowComment()).
                 set(BLOG_POSTS.STATUS, postResponse.getStatus()).
                 // 重新提交审核时由 service 置 0（待审核），这里随保存一并落库
                 set(BLOG_POSTS.REVIEW_STATUS, postResponse.getReviewStatus()).
-                set(BLOG_POSTS.READING_TIME, postResponse.getReadingTime()).
                 set(BLOG_POSTS.CATEGORY_ID, postRequest.getCategoryId()).where(BLOG_POSTS.ID.eq(id)).execute();
         dsl.deleteFrom(BLOG_POST_TAGS).where(BLOG_POST_TAGS.POST_ID.eq(id)).execute();
         BatchBindStep batch=dsl.batch(dsl.insertInto(BLOG_POST_TAGS, BLOG_POST_TAGS.POST_ID, BLOG_POST_TAGS.TAG_ID).values(id,null));
@@ -298,17 +355,13 @@ public class PostRepository {
     public PageResult findPendingPosts(int page, int pageSize) {
         var table= BlogPosts.BLOG_POSTS;
         SelectConditionStep<BlogPostsRecord> where =null;
-        where=dsl.selectFrom(table).where(table.REVIEW_STATUS.eq((short)0).and(table.DELETED_AT.isNull()) );
-
         List<PostResponse> rows;
         long total;
-//        if(where==null){
-            rows=dsl.select(table.ID,
+        rows=dsl.select(table.ID,
                             table.USER_ID,
                             table.TITLE,
                             table.SUMMARY,
                             table.COVER_IMAGE,
-                            table.READING_TIME,
                             table.STATUS,
                             table.CREATED_AT,
                             table.UPDATED_AT,
@@ -403,4 +456,20 @@ public class PostRepository {
     public void offPost(Integer id) {
         dsl.update(BLOG_POSTS).set(BLOG_POSTS.STATUS, (short) 2).where(BLOG_POSTS.ID.eq(id)).execute();
     }
+
+    /**
+     * 我赞过的文章：复用 findPostCond，仅多一个「当前用户点过赞」的约束，按点赞时间倒序。
+     * 与公开列表 GET /posts 同口径：只回已发布（status=1）且未软删；结构完全一致。
+     */
+    public List<PostResponse> getLikePost(Integer userId) {
+        return findPostCond(null, null, null, userId,null);
+    }
+
+    public List<PostResponse> getFavoritedPosts(Integer userId) {
+        return findPostCond(null, null, null, null,userId);
+
+    }
+
+
+
 }

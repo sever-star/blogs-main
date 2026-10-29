@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 站内通知数据访问。直接操作已建好的 blog_notifications 表，不扩展表结构：
@@ -44,9 +45,19 @@ public class NotificationRepository {
         return dsl.fetchCount(dsl.selectFrom(T).where(cond));
     }
 
-    public long countUnread(Integer userId) {
-        return dsl.fetchCount(dsl.selectFrom(T)
-                .where(T.USER_ID.eq(userId).and(T.IS_READ.eq((short) 0))));
+    public Map<String,Long> countUnread(Integer userId) {
+        // 不能用 fetchMap(T.TYPE, Long.class)：该重载会把 (type, count) 两列整行
+        // 映射成 Long，直接抛 "No DefaultRecordMapper strategy applies" → 未读数接口 500。
+        // 取出行后手动组装 key→count。
+        var rows = dsl.select(T.TYPE, DSL.count().as("cnt")).from(T)
+                .where(T.USER_ID.eq(userId).and(T.IS_READ.eq((short) 0)))
+                .groupBy(T.TYPE)
+                .fetch();
+        Map<String, Long> result = new java.util.HashMap<>();
+        for (var row : rows) {
+            result.put(row.get(T.TYPE), row.get("cnt", Long.class));
+        }
+        return result;
     }
 
     public void insert(Integer userId, String type, String title, String content, String link) {
@@ -91,5 +102,13 @@ public class NotificationRepository {
                    .set(T.SOURCE_ID, announcement.getId())
                    .execute();
        });
+    }
+
+    public com.syt.blog.jooq.tables.pojos.BlogNotifications findById(Long id) {
+        return dsl.selectFrom(T).where(T.ID.eq(id)).fetchOneInto(com.syt.blog.jooq.tables.pojos.BlogNotifications.class);
+    }
+
+    public void delete(Long id) {
+        dsl.delete(T).where(T.ID.eq(id)).execute();
     }
 }

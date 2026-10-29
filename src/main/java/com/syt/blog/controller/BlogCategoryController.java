@@ -1,11 +1,9 @@
 package com.syt.blog.controller;
 
-import com.syt.blog.DTO.Mapper.CategoryMapper;
 import com.syt.blog.DTO.Response.CategoryResponse;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
 import com.syt.blog.DTO.Request.CategoryRequest;
-import com.syt.blog.jooq.tables.pojos.BlogCategories;
 import com.syt.blog.service.BlogCategoryService;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -34,8 +32,7 @@ public class BlogCategoryController {
      */
     @PostMapping
     public Result<CategoryResponse> createCategory(@RequestBody @Valid CategoryRequest categoryRequest) {
-        BlogCategories blogCategory = CategoryMapper.INSTANCE.categoryRequestToBlogCategories(categoryRequest);
-        CategoryResponse saved = blogCategoryService.createCategory(blogCategory);
+        CategoryResponse saved = blogCategoryService.createCategory(categoryRequest);
         return Result.success(saved);
     }
 
@@ -78,8 +75,7 @@ public class BlogCategoryController {
      */
     @PutMapping("/{id}")
     public Result<CategoryResponse> updateCategory(@PathVariable Integer id, @RequestBody @Valid CategoryRequest categoryRequest) {
-        BlogCategories blogCategory = CategoryMapper.INSTANCE.categoryRequestToBlogCategories(categoryRequest);
-        CategoryResponse updated = blogCategoryService.updateCategory(id, blogCategory);
+        CategoryResponse updated = blogCategoryService.updateCategory(id, categoryRequest);
         return Result.success(updated);
     }
 

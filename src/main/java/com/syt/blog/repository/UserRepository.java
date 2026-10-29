@@ -1,12 +1,13 @@
 package com.syt.blog.repository;
 
+import com.syt.blog.DTO.Response.UserResponse;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.jooq.tables.BlogUsers;
 import com.syt.blog.jooq.tables.records.BlogUsersRecord;
 import org.jooq.DSLContext;
 import org.jooq.SelectConditionStep;
 import org.springframework.stereotype.Repository;
-
+import static com.syt.blog.jooq.tables.BlogUsers.BLOG_USERS;
 import java.util.List;
 
 @Repository
@@ -102,4 +103,14 @@ public class UserRepository {
                 .fetchOneInto(Long.class);
            }
 
+    public List<UserResponse> getFollowUser(List<Integer> followeeIds) {
+        var table= BLOG_USERS;
+        return dsl.select(table.ID,
+                table.USERNAME,
+                table.NICKNAME,
+                table.AVATAR,
+                table.BIO,
+                table.CREATED_AT).from(table).where(table.ID.in(followeeIds)).fetchInto(UserResponse.class);
+
+    }
 }

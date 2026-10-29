@@ -34,6 +34,7 @@ public class AiRateLimiter {
     private final AiProperties properties;
 
     /** IP -> 窗口内各次提问的时间戳（升序） */
+    //Deque<Long>双端队列
     private final Map<String, Deque<Long>> hits = new ConcurrentHashMap<>();
 
     /**
@@ -53,6 +54,7 @@ public class AiRateLimiter {
         Deque<Long> timestamps = hits.computeIfAbsent(ip, key -> new ArrayDeque<>());
         synchronized (timestamps) {
             // 先淘汰滑出窗口的记录，再判断额度
+            //peekFirst() 取出的是窗口内最早的那个时间戳
             while (!timestamps.isEmpty() && timestamps.peekFirst() < windowStart) {
                 timestamps.pollFirst();
             }

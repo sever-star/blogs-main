@@ -14,11 +14,9 @@ public interface PostMapper {
 
     @Mapping(target="userId", ignore = true)
     // contentHtml 不再忽略：前端提交编辑器渲染好的 HTML（ArticlePayload.contentHtml），随创建一并入库
-    @Mapping(target = "tocHtml",ignore = true)
     @Mapping(target = "viewCount", ignore = true)
     @Mapping(target = "likeCount", ignore = true)
     @Mapping(target = "favCount", ignore = true)
-    @Mapping(target = "isTop", ignore = true)
     @Mapping(target = "deletedAt", ignore = true)
     // created_at/updated_at 都是 NOT NULL + DEFAULT CURRENT_TIMESTAMP，且 updated_at 由
     // trg_posts_updated_at 维护。若映射进来会 setCreatedAt(null)——jOOQ 把「被 set 过的 null」

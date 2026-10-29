@@ -7,15 +7,11 @@ import com.syt.blog.DTO.Mapper.PostMapper;
 import com.syt.blog.DTO.Request.PostRequest;
 import com.syt.blog.DTO.Response.BlogPostDetailResponse;
 import com.syt.blog.DTO.Response.PostResponse;
-import com.syt.blog.jooq.tables.BlogPostTags;
-import com.syt.blog.jooq.tables.records.BlogPostTagsRecord;
 import com.syt.blog.jooq.tables.records.BlogPostsRecord;
 import com.syt.blog.repository.PostRepository;
 import com.syt.blog.util.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
-import lombok.extern.log4j.Log4j;
 import lombok.extern.slf4j.Slf4j;
-import org.jooq.DSLContext;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,13 +26,11 @@ import java.util.List;
 public class BlogPostService {
     private final ViewCountService viewCountService;
     private final PostRepository postRepository;
-    private final DSLContext dsl;
     private final NotificationService notificationService;
 
-    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, DSLContext dsl, NotificationService notificationService) {
+    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, NotificationService notificationService) {
         this.viewCountService = viewCountService;
         this.postRepository = postRepository;
-        this.dsl = dsl;
         this.notificationService = notificationService;
     }
 
@@ -47,37 +41,18 @@ public class BlogPostService {
      */
     @Transactional
     public PostResponse createPost(PostRequest postRequest) {
-        // 可选字段兜底（见 PostRequest 注释）：没传则用默认值，避免插 NULL
-        if (postRequest.getReadingTime() == null) {
-            postRequest.setReadingTime(15);
-        }
-        if (postRequest.getAllowComment() == null) {
-            postRequest.setAllowComment((short) 1);
-        }
         BlogPostsRecord blogPostsRecord = PostMapper.INSTANCE.postRequestToBlogPostsRecord(postRequest);
-        Integer id = SecurityUtils.currentUserId();
-        blogPostsRecord.setUserId(id);
-        log.info("Creating post for user ID: " + id);
-        // MapStruct 默认用 new BlogPostsRecord() 造对象，结果 Record 没绑 Configuration，
-        // 直接 record.insert() 会抛 "No JDBC Connection configured"。
-        // jOOQ Record 实现了 Attachable，把 Spring 注入的 DSLContext attach 上即可。
-        blogPostsRecord.attach(dsl.configuration());
-        blogPostsRecord.insert();
-        Integer Postid = blogPostsRecord.getId();
-        log.info("Post created with ID: " + Postid);
-        if (Postid == null) {
+        Integer userId = SecurityUtils.currentUserId();
+        blogPostsRecord.setUserId(userId);
+        log.info("Creating post for user ID: {}", userId);
+        // 插入与标签关联的持久化细节下沉到 repository，service 不再持有 DSLContext
+        Integer postId = postRepository.insertPost(blogPostsRecord);
+        log.info("Post created with ID: {}", postId);
+        if (postId == null) {
             throw new RuntimeException("创建文章失败");
         }
-        BlogPostTagsRecord blogPostTagsRecord = new BlogPostTagsRecord();
-        // 同上：手 new 的 Record 也要先 attach，否则第一条 tag 就 500
-        blogPostTagsRecord.attach(dsl.configuration());
-        blogPostTagsRecord.setPostId(Postid);
-        for (Integer tagId : postRequest.getTags()){
-            blogPostTagsRecord.setTagId(tagId);
-            blogPostTagsRecord.insert();
-        }
-        PostResponse postResponse = postRepository.getPostAndCategory(Postid);
-        return postResponse;
+        postRepository.saveTags(postId, postRequest.getTags());
+        return postRepository.getPostAndCategory(postId);
     }
 
     /**
@@ -106,13 +81,9 @@ public class BlogPostService {
             throw new BusinessException(400, "文章已审核");
         }
         Integer currentUserId = SecurityUtils.currentUserId();
-        blogPostsRecord.setReviewerId(currentUserId);
-        blogPostsRecord.setStatus((short) STATUS_PUBLISHED);
-        blogPostsRecord.setReviewStatus((short) STATUS_PUBLISHED);
-        blogPostsRecord.setReviewedAt(LocalDateTime.now());
-        blogPostsRecord.update();
+        postRepository.updateReview(id, currentUserId, (short) STATUS_PUBLISHED, (short) STATUS_PUBLISHED, LocalDateTime.now());
         try{
-            notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已通过审核", "文章<"+blogPostsRecord.getTitle()+"已通过审核", "/article/" + id);
+            notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已通过审核", "文章《"+blogPostsRecord.getTitle()+"》已通过审核", "/article/" + id);
         }catch (Exception e){
             log.warn("审核通过通知生成失败 postId={} actor={}", id, currentUserId, e);
         }
@@ -128,13 +99,9 @@ public class BlogPostService {
             throw new BusinessException(400, "文章已拒绝");
         }
         Integer currentUserId = SecurityUtils.currentUserId();
-        blogPostsRecord.setReviewerId(currentUserId);
-        blogPostsRecord.setStatus((short) 0);
-        blogPostsRecord.setReviewStatus((short) 2);
-        blogPostsRecord.setReviewedAt(LocalDateTime.now());
-        blogPostsRecord.update();
+        postRepository.updateReview(id, currentUserId, (short) 0, (short) 2, LocalDateTime.now());
         try{
-            notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已被驳回", "文章<"+blogPostsRecord.getTitle()+"已被驳回，原因："+reason, "/article/" + id);
+            notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已被驳回", "文章《"+blogPostsRecord.getTitle()+"》已被驳回，原因："+reason, "/article/" + id);
         }catch (Exception e){
             log.warn("审核拒绝通知生成失败 postId={} actor={}", id, currentUserId, e);
         }
@@ -172,6 +139,7 @@ public class BlogPostService {
      * 获取已发布文章列表
      */
     public List<PostResponse> getPublishedPosts(Integer categoryId, Integer tagId, String keyword) {
+
         return postRepository.findPostCond(categoryId, tagId, keyword);
     }
 
@@ -279,10 +247,6 @@ public class BlogPostService {
         if (postRequest.getCoverImage() != null) {
             existing.setCoverImage(postRequest.getCoverImage());
         }
-        if (postRequest.getAllowComment() != null) {
-            existing.setAllowComment(postRequest.getAllowComment());
-        }
-        existing.setReadingTime((short) 15);
         // 重新提交审核 = review_status 归 0（待审核），approve 时才置 1。
         // 发布状态按新语义（0草稿/1已发布/2已下架）：已发布的编辑期间先下架待审，
         // 草稿保持 0——历史逻辑无条件置 2 会把草稿也标成「已下架」
@@ -343,5 +307,21 @@ public class BlogPostService {
             log.warn("下架通知生成失败 postId={} actor={}", id, currentUserId, e);
         }
 
+    }
+
+    public List<PostResponse> getLikePost() {
+        Integer userId= SecurityUtils.currentUserId();
+        if (userId==null){
+            throw new BusinessException(401, "请先登录");
+        }
+        return postRepository.getLikePost(userId);
+    }
+
+    public List<PostResponse> getFavoritedPosts() {
+        Integer userId= SecurityUtils.currentUserId();
+        if (userId==null){
+            throw new BusinessException(401, "请先登录");
+        }
+        return postRepository.getFavoritedPosts(userId);
     }
 }

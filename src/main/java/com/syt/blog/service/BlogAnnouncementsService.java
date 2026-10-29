@@ -15,10 +15,8 @@ import org.springframework.stereotype.Service;
 @Service
 public class BlogAnnouncementsService {
     private final AnnouncementsRepository announcementsRepository;
-    private final DSLContext dsl;
     public BlogAnnouncementsService(AnnouncementsRepository announcementsRepository, DSLContext dsl) {
         this.announcementsRepository = announcementsRepository;
-        this.dsl = dsl;
     }
     public AnnouncementResponse addAnnouncement( AnnouncementRequest announcementRequest) {
         BlogAnnouncements blogAnnouncements = AnnouncementsMapper.INSTANCE.toAnnouncementRequest(announcementRequest);

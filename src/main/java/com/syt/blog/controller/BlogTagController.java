@@ -7,7 +7,6 @@ import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
 import com.syt.blog.DTO.Request.TagRequest;
 
-import com.syt.blog.jooq.tables.pojos.BlogTags;
 import com.syt.blog.service.BlogTagService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -28,8 +27,7 @@ public class BlogTagController {
      */
     @PostMapping
     public Result<TagResponse> createBlogTag(@Valid @RequestBody TagRequest tagRequest) {
-        BlogTags blogTag = TagMapper.INSTANCE.blogTagsToBlogTagRequest(tagRequest);
-        TagResponse tagResponse = blogTagService.saveBlogTag(blogTag);
+        TagResponse tagResponse = blogTagService.saveBlogTag(tagRequest);
         return Result.success(tagResponse);
     }
 
@@ -69,8 +67,7 @@ public class BlogTagController {
     @PutMapping("/{id}")
     public Result<TagResponse> updateBlogTag(@PathVariable Integer id,
                                              @RequestBody @Valid TagRequest tagRequest){
-        BlogTags blogTags= TagMapper.INSTANCE.blogTagsToBlogTagRequest(tagRequest);
-        TagResponse tagResponse = blogTagService.updateBlogTag(id, blogTags);
+        TagResponse tagResponse = blogTagService.updateBlogTag(id, tagRequest);
         return Result.success(tagResponse);
     }
 
