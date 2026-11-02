@@ -30,12 +30,12 @@ public class NotificationService {
     private final NotificationRepository notificationRepository;
     private final UserRepository userRepository;
 
-    public PageResult list(int page, int pageSize, boolean onlyUnread) {
+    public PageResult list(int page, int pageSize, boolean onlyUnread, List<String> types) {
         Integer userId = SecurityUtils.currentUserId();
         notificationRepository.Insert(userId);
-        var records = notificationRepository.findPaged(userId, page, pageSize, onlyUnread);
+        var records = notificationRepository.findPaged(userId, page, pageSize, onlyUnread, types);
         List<NotificationResponse> data = records.stream().map(this::toVo).toList();
-        long total = notificationRepository.count(userId, onlyUnread);
+        long total = notificationRepository.count(userId, onlyUnread, types);
         int totalPages = pageSize > 0 ? (int) Math.ceil((double) total / pageSize) : 0;
         return new PageResult(data, total, page, pageSize, totalPages);
     }

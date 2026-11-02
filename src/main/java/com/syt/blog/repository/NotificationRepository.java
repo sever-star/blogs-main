@@ -5,6 +5,7 @@ import com.syt.blog.jooq.tables.BlogNotifications;
 import com.syt.blog.jooq.tables.records.BlogNotificationsRecord;
 import org.jooq.DSLContext;
 import org.jooq.impl.DSL;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
@@ -24,11 +25,17 @@ public class NotificationRepository {
         this.dsl = dsl;
     }
 
-    /** 分页查询某用户的通知，可只看未读，按创建时间倒序 */
-    public List<BlogNotificationsRecord> findPaged(Integer userId, int page, int pageSize, boolean onlyUnread) {
+    @Autowired
+    private MessagesRepository messagesRepository;
+    /** 分页查询某用户的通知，可只看未读、可按 type 集合过滤，按创建时间倒序 */
+    public List<BlogNotificationsRecord> findPaged(Integer userId, int page, int pageSize, boolean onlyUnread,
+                                                   java.util.List<String> types) {
         var cond = T.USER_ID.eq(userId);
         if (onlyUnread) {
             cond = cond.and(T.IS_READ.eq((short) 0));
+        }
+        if (types != null && !types.isEmpty()) {
+            cond = cond.and(T.TYPE.in(types));
         }
         return dsl.selectFrom(T)
                 .where(cond)
@@ -37,10 +44,13 @@ public class NotificationRepository {
                 .fetch();
     }
 
-    public long count(Integer userId, boolean onlyUnread) {
+    public long count(Integer userId, boolean onlyUnread, java.util.List<String> types) {
         var cond = T.USER_ID.eq(userId);
         if (onlyUnread) {
             cond = cond.and(T.IS_READ.eq((short) 0));
+        }
+        if (types != null && !types.isEmpty()) {
+            cond = cond.and(T.TYPE.in(types));
         }
         return dsl.fetchCount(dsl.selectFrom(T).where(cond));
     }
@@ -57,6 +67,8 @@ public class NotificationRepository {
         for (var row : rows) {
             result.put(row.get(T.TYPE), row.get("cnt", Long.class));
         }
+        Integer count= messagesRepository.countUnread(userId);
+        result.put("messages", Long.valueOf(count));
         return result;
     }
 
