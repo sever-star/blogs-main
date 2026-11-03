@@ -25,6 +25,7 @@ import static com.syt.blog.jooq.tables.BlogPostTags.BLOG_POST_TAGS;
 import static com.syt.blog.jooq.tables.BlogPosts.BLOG_POSTS;
 import static com.syt.blog.jooq.tables.BlogTags.BLOG_TAGS;
 import static com.syt.blog.jooq.tables.BlogUsers.BLOG_USERS;
+import static org.jooq.impl.DSL.currentLocalDateTime;
 
 @Repository
 public class PostRepository {
@@ -342,6 +343,8 @@ public class PostRepository {
                 set(BLOG_POSTS.CONTENT_HTML, postResponse.getContentHtml()).
                 set(BLOG_POSTS.COVER_IMAGE, postResponse.getCoverImage()).
                 set(BLOG_POSTS.STATUS, postResponse.getStatus()).
+                // 定时发布时间随保存落库（service 已按请求 always-set：时间或 null）
+                set(BLOG_POSTS.SCHEDULED_AT, postResponse.getScheduledAt()).
                 // 重新提交审核时由 service 置 0（待审核），这里随保存一并落库
                 set(BLOG_POSTS.REVIEW_STATUS, postResponse.getReviewStatus()).
                 set(BLOG_POSTS.CATEGORY_ID, postRequest.getCategoryId()).where(BLOG_POSTS.ID.eq(id)).execute();
@@ -384,8 +387,8 @@ public class PostRepository {
                 );
                 r.setTags(tag);
             });
-        int totalPages = (int) Math.ceil((double) total / pageSize);
-        return new PageResult(rows, total, page, pageSize, totalPages);
+        int totalPage= pageSize>0?(int)Math.ceil(total/pageSize):0;
+        return new PageResult(rows, total, page, pageSize, totalPage);
     }
 
 
@@ -471,5 +474,39 @@ public class PostRepository {
     }
 
 
+    public List<BlogPostsRecord> findPendingScheduled() {
+        return dsl.selectFrom(BLOG_POSTS)
+                .where(BLOG_POSTS.STATUS.eq((short) 0)
+                        .and(BLOG_POSTS.SCHEDULED_AT.isNotNull())   // 有定时计划的待发稿（isNull 会查到无定时草稿，init 算 Duration 时 NPE）
+                        .and(BLOG_POSTS.REVIEW_STATUS.eq((short) 1))
+                        .and(BLOG_POSTS.DELETED_AT.isNull())).fetchInto(BLOG_POSTS);
+    }
 
+    public void publishScheduledPost(Integer postId) {
+        dsl.update(BLOG_POSTS)
+                .set(BLOG_POSTS.STATUS, (short) 1)
+                .where(BLOG_POSTS.STATUS.eq((short) 0))
+                .and(BLOG_POSTS.REVIEW_STATUS.eq((short) 1))
+                .and(BLOG_POSTS.SCHEDULED_AT.isNotNull())
+                .and(BLOG_POSTS.SCHEDULED_AT.le(currentLocalDateTime()))   // <= now()
+                .and(BLOG_POSTS.DELETED_AT.isNull())
+                .and(BLOG_POSTS.ID.eq(postId)).execute();
+    }
+
+    /**
+     * 兜底扫描：已到点(scheduled_at <= now)但尚未发布(status=0)的定时稿。
+     * <p>
+     * 正常由 Redisson 消费线程及时发布，此查询返回空；只在 Redis 队列丢任务、
+     * offer 失败、消费线程异常时才有数据，用于补发。条件与 publishScheduledPost 一致，
+     * 重复触发幂等安全。
+     */
+    public List<Integer> findOverdueScheduled() {
+        return dsl.select(BLOG_POSTS.ID).from(BLOG_POSTS)
+                .where(BLOG_POSTS.STATUS.eq((short) 0)
+                        .and(BLOG_POSTS.SCHEDULED_AT.isNotNull())
+                        .and(BLOG_POSTS.SCHEDULED_AT.le(currentLocalDateTime()))
+                        .and(BLOG_POSTS.REVIEW_STATUS.eq((short) 1))
+                        .and(BLOG_POSTS.DELETED_AT.isNull()))
+                .fetchInto(Integer.class);
+    }
 }

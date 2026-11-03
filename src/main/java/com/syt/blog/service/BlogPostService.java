@@ -27,11 +27,13 @@ public class BlogPostService {
     private final ViewCountService viewCountService;
     private final PostRepository postRepository;
     private final NotificationService notificationService;
+    public final ScheduledPostDispatcher scheduledPostDispatcher;
 
-    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, NotificationService notificationService) {
+    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, NotificationService notificationService, ScheduledPostDispatcher scheduledPostDispatcher) {
         this.viewCountService = viewCountService;
         this.postRepository = postRepository;
         this.notificationService = notificationService;
+        this.scheduledPostDispatcher = scheduledPostDispatcher;
     }
 
     private static final int STATUS_PUBLISHED = 1;
@@ -81,7 +83,13 @@ public class BlogPostService {
             throw new BusinessException(400, "文章已审核");
         }
         Integer currentUserId = SecurityUtils.currentUserId();
-        postRepository.updateReview(id, currentUserId, (short) STATUS_PUBLISHED, (short) STATUS_PUBLISHED, LocalDateTime.now());
+
+        LocalDateTime at = blogPostsRecord.getScheduledAt();
+        if(at!=null){
+            scheduledPostDispatcher.schedule(id,at);
+        }else {
+            postRepository.updateReview(id, currentUserId, (short) STATUS_PUBLISHED, (short) STATUS_PUBLISHED, LocalDateTime.now());
+        }
         try{
             notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已通过审核", "文章《"+blogPostsRecord.getTitle()+"》已通过审核", "/article/" + id);
         }catch (Exception e){
@@ -247,6 +255,10 @@ public class BlogPostService {
         if (postRequest.getCoverImage() != null) {
             existing.setCoverImage(postRequest.getCoverImage());
         }
+        // scheduledAt 用 always-set 语义（不同于上面字段的 if-non-null）：
+        // 前端每次提交都显式携带（时间或 null），null 表示取消已有定时，
+        // 否则用户关闭「定时发布」开关后旧时间仍残留，审核通过会按旧时间误发。
+        existing.setScheduledAt(postRequest.getScheduledAt());
         // 重新提交审核 = review_status 归 0（待审核），approve 时才置 1。
         // 发布状态按新语义（0草稿/1已发布/2已下架）：已发布的编辑期间先下架待审，
         // 草稿保持 0——历史逻辑无条件置 2 会把草稿也标成「已下架」
@@ -255,6 +267,7 @@ public class BlogPostService {
             existing.setStatus((short) 2);
         }
         postRepository.save(id, existing, postRequest);
+        scheduledPostDispatcher.cancel(id);
         return getPostById(id,null);
     }
 
@@ -274,6 +287,7 @@ public class BlogPostService {
         }
         // 软删除：设置删除时间而非物理删除
         post.setDeletedAt(LocalDateTime.now());
+        scheduledPostDispatcher.cancel(id);
     }
 
 
