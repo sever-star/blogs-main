@@ -68,7 +68,8 @@ public class NotificationRepository {
             result.put(row.get(T.TYPE), row.get("cnt", Long.class));
         }
         Integer count= messagesRepository.countUnread(userId);
-        result.put("messages", Long.valueOf(count));
+        // key 用单数 "message"，与 byType 其它 type 名一致；前端按 byType["message"] 取私信未读并从铃铛总数中扣除
+        result.put("message", Long.valueOf(count == null ? 0 : count));
         return result;
     }
 
