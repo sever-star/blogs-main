@@ -1,22 +1,24 @@
-package com.syt.blog.DTO.Request;
+package com.syt.blog.DTO.Response;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class MessagesRequest {
-    Integer id;
-    Integer conversationId;
+public class MessageResponse {
+    Long id;
+    Long conversationId;
     Integer senderId;
     Integer receiverId;
     String senderNickname;
     String senderAvatar;
     String content;
-    String isRead;
-    String readAt;
-    String createdAt;
+    Short isRead;
+    LocalDateTime readAt;
+    LocalDateTime createdAt;
 
 }

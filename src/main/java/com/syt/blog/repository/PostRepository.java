@@ -378,7 +378,7 @@ public class PostRepository {
                     .orderBy(table.ID.desc()).
                     limit(pageSize).offset((page - 1) * pageSize).
                     fetchInto(PostResponse.class);
-            total = dsl.fetchCount(where);
+            total = dsl.fetchCount(table);
 
             rows.forEach(r -> {
                 var tag=  dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT).from(BLOG_POST_TAGS).join(BLOG_TAGS).on(BLOG_POST_TAGS.TAG_ID.eq(BLOG_TAGS.ID))

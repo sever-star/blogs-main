@@ -81,6 +81,12 @@ public class SecurityConfig {
                         // 404/500 会 forward 到 /error；不放行会导致错误响应被二次拦截成 401
                         .requestMatchers("/error").permitAll()
 
+                        // ── WebSocket 握手：鉴权在 MessagesHandshakeInterceptor 里做 ──
+                        // 浏览器 new WebSocket() 无法带 Authorization 头，token 走 query 参数，
+                        // Spring Security 的 Bearer 过滤器拿不到 → 这里放行，否则握手被
+                        // anyRequest().authenticated() 拦成 401
+                        .requestMatchers("/ws/**").permitAll()
+
                         // ── 公开：认证端点（不带 token 才进得来）────────────────────
                         .requestMatchers(HttpMethod.POST, "/api/auth/login",
                                 "/api/auth/register", "/api/auth/refresh",

@@ -57,6 +57,11 @@ public class BlogUserManageController {
         return Result.success(user);
     }
 
+    /**
+     * 重置密码
+     * @param id
+     * @return
+     */
     @PostMapping("/{id}/reset-password")
     public Result<Map<String, String>> resetPassword(@PathVariable Integer id) {
         Map<String,String> result = blogUserService.resetPassword(id);

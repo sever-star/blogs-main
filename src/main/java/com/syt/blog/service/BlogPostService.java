@@ -85,10 +85,13 @@ public class BlogPostService {
         Integer currentUserId = SecurityUtils.currentUserId();
 
         LocalDateTime at = blogPostsRecord.getScheduledAt();
+        short status=0;
+        if(at!=null){
+            status=STATUS_PUBLISHED;
+        }
+        postRepository.updateReview(id, currentUserId, status, (short) STATUS_PUBLISHED, LocalDateTime.now());
         if(at!=null){
             scheduledPostDispatcher.schedule(id,at);
-        }else {
-            postRepository.updateReview(id, currentUserId, (short) STATUS_PUBLISHED, (short) STATUS_PUBLISHED, LocalDateTime.now());
         }
         try{
             notificationService.createNotification(currentUserId, blogPostsRecord.getUserId(), "system", "文章已通过审核", "文章《"+blogPostsRecord.getTitle()+"》已通过审核", "/article/" + id);

@@ -56,10 +56,27 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
+
+        <!-- Redisson 核心库（不用 redisson-spring-boot-starter）：
+             starter 的 autoconfigure 引用 org.springframework.boot.autoconfigure.data.redis.RedisProperties，
+             该类在 Spring Boot 4 已移走 → ClassNotFoundException 启动崩。改用纯 redisson artifact，
+             连接配置由 RedissonConfig 手动从 spring.data.redis.* 读取。 -->
+        <dependency>
+            <groupId>org.redisson</groupId>
+            <artifactId>redisson</artifactId>
+            <version>3.49.0</version>
+        </dependency>
+
         <!-- JOOQ：用于生成类型安全的 SQL 代码 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jooq</artifactId>
+        </dependency>
+
+        <!--websocket双向通信 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-websocket</artifactId>
         </dependency>
 
         <!-- Lombok：简化实体类代码（自动生成 getter/setter 等） -->
