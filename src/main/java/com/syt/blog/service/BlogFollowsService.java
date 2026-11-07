@@ -2,6 +2,7 @@ package com.syt.blog.service;
 
 import com.syt.blog.DTO.Response.UserResponse;
 import com.syt.blog.common.BusinessException;
+import com.syt.blog.common.ResourceNotFoundException;
 import com.syt.blog.jooq.tables.pojos.BlogUsers;
 import com.syt.blog.repository.FollowsRepository;
 import com.syt.blog.repository.UserRepository;
@@ -52,7 +53,7 @@ public class BlogFollowsService {
 
     public List<UserResponse> getMineAll() {
         Integer followerId= SecurityUtils.currentUserId();
-        List<Integer> followeeIds= followsRepository.getFollow(followerId);
+        List<Long> followeeIds= followsRepository.getFollow(followerId);
         return userRepository.getFollowUser(followeeIds);
     }
 
@@ -61,5 +62,13 @@ public class BlogFollowsService {
         if (user==null){
             throw new BusinessException(404,"用户不存在");
         }
+    }
+
+    public List<UserResponse> getFollowers(Integer followeeId) {
+        if (userRepository.findById(followeeId) == null) {
+            throw new ResourceNotFoundException("用户不存在");
+        }
+        List<Long> list= followsRepository.getFollowers(followeeId);
+        return userRepository.getFollowUser(list);
     }
 }

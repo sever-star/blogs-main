@@ -40,4 +40,9 @@ public class PostResponse {
 
     private String authorNickname;
     private String authorAvatar;
+    /** 搜索命中高亮标题（仅搜索接口返回，<em> 包裹命中词；类上 @JsonInclude(NON_NULL) 保证列表接口不序列化） */
+    private String highlightTitle;
+    /** 搜索命中高亮摘要片段（仅搜索接口返回） */
+    private String highlightSummary;
+
 }

@@ -103,7 +103,7 @@ public class UserRepository {
                 .fetchOneInto(Long.class);
            }
 
-    public List<UserResponse> getFollowUser(List<Integer> followeeIds) {
+    public List<UserResponse> getFollowUser(List<Long> followeeIds) {
         var table= BLOG_USERS;
         return dsl.select(table.ID,
                 table.USERNAME,

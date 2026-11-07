@@ -123,22 +123,19 @@ public class PostRepository {
     }
 
 
-    public List<PostResponse> findPostCond(Integer categoryId, Integer tagId, String keyword) {
-        return findPostCond(categoryId, tagId, keyword, null,null);
+    public List<PostResponse> findPostCond(Integer categoryId, Integer tagId) {
+        return findPostCond(categoryId, tagId, null,null);
     }
 
     /**
      * 公开文章列表查询；likedByUserId 非空时额外约束「该用户点过赞」并按点赞时间倒序。
      * 我赞过的文章复用此方法，避免重复 SELECT / 标签 / 评论数逻辑——点赞列表只是多一个 join。
      */
-    public List<PostResponse> findPostCond(Integer categoryId, Integer tagId, String keyword, Integer likedByUserId,Integer favoriteByUserId) {
+    public List<PostResponse> findPostCond(Integer categoryId, Integer tagId, Integer likedByUserId,Integer favoriteByUserId) {
         // 构建查询条件
         Condition noCondition = DSL.noCondition();
         if (categoryId != null) {
             noCondition = noCondition.and(BLOG_POSTS.CATEGORY_ID.eq(categoryId));
-        }
-        if (keyword != null) {
-            noCondition = noCondition.and(BLOG_POSTS.TITLE.like("%" + keyword + "%"));
         }
         var fromStep = dsl.select(
                 BLOG_POSTS.ID,
@@ -357,7 +354,7 @@ public class PostRepository {
     }
     public PageResult findPendingPosts(int page, int pageSize) {
         var table= BlogPosts.BLOG_POSTS;
-        SelectConditionStep<BlogPostsRecord> where =null;
+        SelectConditionStep<BlogPostsRecord> where =dsl.selectFrom(BLOG_POSTS).where(table.DELETED_AT.isNull().and(table.REVIEW_STATUS.eq((short)0)));
         List<PostResponse> rows;
         long total;
         rows=dsl.select(table.ID,
@@ -378,7 +375,7 @@ public class PostRepository {
                     .orderBy(table.ID.desc()).
                     limit(pageSize).offset((page - 1) * pageSize).
                     fetchInto(PostResponse.class);
-            total = dsl.fetchCount(table);
+            total = dsl.fetchCount(where);
 
             rows.forEach(r -> {
                 var tag=  dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT).from(BLOG_POST_TAGS).join(BLOG_TAGS).on(BLOG_POST_TAGS.TAG_ID.eq(BLOG_TAGS.ID))
@@ -465,14 +462,49 @@ public class PostRepository {
      * 与公开列表 GET /posts 同口径：只回已发布（status=1）且未软删；结构完全一致。
      */
     public List<PostResponse> getLikePost(Integer userId) {
-        return findPostCond(null, null, null, userId,null);
+        return findPostCond(null,  null, userId,null);
     }
 
     public List<PostResponse> getFavoritedPosts(Integer userId) {
-        return findPostCond(null, null, null, null,userId);
+        return findPostCond(null, null, null,userId);
 
     }
 
+    /**
+     * 用户已发布文章数（status=1 且未软删），用于主页统计。
+     * 公开口径：只数别人能看到的已发布文章，不含草稿/已下架。
+     */
+    public int countPublishedByUser(Integer userId) {
+        return dsl.fetchCount(dsl.selectFrom(BLOG_POSTS)
+                .where(BLOG_POSTS.USER_ID.eq(userId)
+                        .and(BLOG_POSTS.STATUS.eq((short) 1))
+                        .and(BLOG_POSTS.DELETED_AT.isNull())));
+    }
+
+    /**
+     * 用户文章收到的点赞总数（已发布文章 like_count 之和），用于主页「获赞」统计。
+     * 用冗余列 like_count 求和，避免 join blog_post_likes 计数；未发布文章的赞不外露。
+     * COALESCE 兜底：用户无已发布文章时 SUM 返回 NULL，归零。
+     */
+    public int sumLikeCountByUser(Integer userId) {
+        // sum(int) 在 jOOQ 里返回 BigDecimal，coalesce 兜零后 cast 成 int，避免 BigDecimal→Integer 转换异常
+        Integer sum = dsl.select(DSL.coalesce(DSL.sum(BLOG_POSTS.LIKE_COUNT), DSL.inline(0)).cast(int.class))
+                .from(BLOG_POSTS)
+                .where(BLOG_POSTS.USER_ID.eq(userId)
+                        .and(BLOG_POSTS.STATUS.eq((short) 1))
+                        .and(BLOG_POSTS.DELETED_AT.isNull()))
+                .fetchOne(0, Integer.class);
+        return sum == null ? 0 : sum;
+    }
+    public int sumView(Integer userId) {
+        Integer sum = dsl.select(DSL.coalesce(DSL.sum(BLOG_POSTS.VIEW_COUNT), DSL.inline(0)).cast(int.class))
+                .from(BLOG_POSTS)
+                .where(BLOG_POSTS.USER_ID.eq(userId)
+                        .and(BLOG_POSTS.STATUS.eq((short) 1))
+                        .and(BLOG_POSTS.DELETED_AT.isNull()))
+                .fetchOne(0, Integer.class);
+        return sum == null ? 0 : sum;
+    }
 
     public List<BlogPostsRecord> findPendingScheduled() {
         return dsl.selectFrom(BLOG_POSTS)
@@ -508,5 +540,60 @@ public class PostRepository {
                         .and(BLOG_POSTS.REVIEW_STATUS.eq((short) 1))
                         .and(BLOG_POSTS.DELETED_AT.isNull()))
                 .fetchInto(Integer.class);
+    }
+
+
+    public List<PostResponse> searchPosts(String keyword) {
+        // search_vector 是 tsvector 生成列，未进 jOOQ 生成代码；用 unquotedName 构造成不带引号的裸列名，
+        // FROM 中仅 blog_posts 拥有该列、PG 自动归属，无需表名限定。
+        // 关键：plain-SQL 片段里不手写 "blog_posts.search_vector"——曾因誊写漏 s（blog_post）
+        // 且 jOOQ 对「已知表 + 未知列」的解析异常，报 "丢失FROM子句项 for blog_post"。
+        // 所有列引用一律走 {0} 占位符绑定 jOOQ Field，杜绝手写表名。
+        Field<Object> searchVector = DSL.field(DSL.unquotedName("search_vector"));
+        Condition condition = DSL.condition(
+                "{0} @@ websearch_to_tsquery('zhprs', {1})", searchVector, keyword);
+        Condition visible = BLOG_POSTS.STATUS.eq((short) 1).and(BLOG_POSTS.DELETED_AT.isNull());
+        // 相关性分数（仅用于排序，不必 select 出来）
+        Field<Double> rank = DSL.field(
+                "ts_rank({0}, websearch_to_tsquery('zhprs', {1}))", Double.class, searchVector, keyword);
+        // 高亮：<em> 包裹命中词；标题整段(MaxFragments=0)，摘要截成短片段；title/summary 用生成字段，自带正确限定
+        Field<String> titleHl = DSL.field(
+                "ts_headline('zhprs', {0}, websearch_to_tsquery('zhprs', {1}), 'MaxFragments=0,StartSel=<em>,StopSel=</em>')",
+                String.class, BLOG_POSTS.TITLE, keyword);
+        Field<String> summaryHl = DSL.field(
+                "ts_headline('zhprs', {0}, websearch_to_tsquery('zhprs', {1}), 'MaxWords=30,MinWords=15,StartSel=<em>,StopSel=</em>')",
+                String.class, BLOG_POSTS.SUMMARY, keyword);
+        List<PostResponse> rows=dsl.select(
+                BLOG_POSTS.ID,
+                BLOG_POSTS.USER_ID, BLOG_POSTS.TITLE,
+                BLOG_POSTS.SUMMARY, BLOG_POSTS.COVER_IMAGE,
+                BLOG_POSTS.VIEW_COUNT, BLOG_POSTS.LIKE_COUNT,
+                BLOG_POSTS.FAV_COUNT, BLOG_POSTS.STATUS,
+                BLOG_POSTS.SCHEDULED_AT,
+                BLOG_POSTS.CREATED_AT, BLOG_POSTS.UPDATED_AT,
+                BLOG_CATEGORIES.ID.as("category.id"),
+                BLOG_CATEGORIES.NAME.as("category.name"),
+                BLOG_USERS.NICKNAME.as("authorNickname"),
+                BLOG_USERS.AVATAR.as("authorAvatar"),
+                titleHl.as("highlightTitle"),
+                summaryHl.as("highlightSummary")
+        ).from(BLOG_POSTS).join(BLOG_USERS).on(BLOG_POSTS.USER_ID.eq(BLOG_USERS.ID))
+                .leftJoin(BLOG_CATEGORIES).on(BLOG_POSTS.CATEGORY_ID.eq(BLOG_CATEGORIES.ID))
+                .where(condition.and(visible))
+                .orderBy(rank.desc(),BLOG_POSTS.UPDATED_AT.desc())
+                .fetch(r->{
+                    PostResponse p=mapRow(r);
+                    p.setHighlightTitle(r.get("highlightTitle",String.class));
+                    p.setHighlightSummary(r.get("highlightSummary", String.class));
+                    return p;
+                });
+        if (rows.isEmpty()) return rows;
+        List<Integer> postId=rows.stream().map(PostResponse::getId).toList();
+        Map<Integer,List<TagResponse>> tags=dsl.select(BLOG_TAGS.ID,BLOG_TAGS.NAME,BLOG_TAGS.CREATED_AT,BLOG_POST_TAGS.POST_ID)
+                .from(BLOG_TAGS).join(BLOG_POST_TAGS).on(BLOG_TAGS.ID.eq(BLOG_POST_TAGS.TAG_ID))
+                .where(BLOG_POST_TAGS.POST_ID.in(postId)).fetchGroups(r->
+                        r.get(BLOG_POST_TAGS.POST_ID),r->r.into(TagResponse.class));
+        rows.forEach(row->{row.setTags(tags.getOrDefault(row.getId(), List.of()));});
+        return rows;
     }
 }

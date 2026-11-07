@@ -42,6 +42,8 @@ public class BlogUserService {
     private final JwtUtils jwtUtils;
     private final RefreshTokenService refreshTokenService;
     private final BlogUsersDao blogUsersDao;
+    private final com.syt.blog.repository.PostRepository postRepository;
+    private final com.syt.blog.repository.FollowsRepository followsRepository;
 
     @Value("${jwt.refresh-expiration}")
     private long refreshExpiration;
@@ -367,5 +369,23 @@ public class BlogUserService {
 
     public Long getTokenVersion(Integer userId) {
         return userRepository.getTokenVersion(userId);
+    }
+
+    /**
+     * 用户主页统计：文章数 / 获赞数 / 粉丝数。
+     * <p>
+     * 三个计数均为公开口径（已发布文章、其收到的赞、粉丝数），故接口对外可见。
+     * 用户不存在抛 404，避免给任意 userId 都返回零值造成「查无此人却有统计」的歧义。
+     */
+    public com.syt.blog.DTO.Response.UserStatsResponse getUserStats(Integer userId) {
+        if (userRepository.findById(userId) == null) {
+            throw new ResourceNotFoundException("用户不存在");
+        }
+        int articleCount = postRepository.countPublishedByUser(userId);
+        int likeCount = postRepository.sumLikeCountByUser(userId);
+        int viewCount = postRepository.sumView(userId);
+        int followerCount = followsRepository.countFollowers(userId);
+        // 构造顺序须与 UserStatsResponse 字段声明顺序一致：articleCount, likeCount, viewCount, followerCount
+        return new com.syt.blog.DTO.Response.UserStatsResponse(articleCount, likeCount, viewCount, followerCount);
     }
 }

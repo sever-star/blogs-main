@@ -108,7 +108,9 @@ public class SecurityConfig {
 
                         // ── 需登录 ────────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/auth/*").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/auth/me").authenticated()
+
                         .requestMatchers(HttpMethod.POST, "/api/upload/avatar").authenticated()
                         // 创建/编辑文章对所有登录用户开放（提交审核流程）；
                         // 「只有作者本人能编辑」由 BlogPostService.updatePost 校验
@@ -140,6 +142,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.DELETE, "/api/follows/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/follows/*/status").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/follows/mine").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/follows/fans").authenticated()
 
                         // ── 需博主/管理员 ──────────────────────────────────────────
                         // 用 hasAuthority 而非 hasRole：后者会自动加 ROLE_ 前缀，
@@ -156,6 +159,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/announcements/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/announcements/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.GET, "/api/announcements").hasAuthority("ADMIN")
+
+
 
                         // 用户管理：GET 也拦——列表含邮箱等信息，不能放开给普通登录用户
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**").hasAuthority("ADMIN")

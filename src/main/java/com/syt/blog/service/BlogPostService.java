@@ -149,9 +149,9 @@ public class BlogPostService {
     /**
      * 获取已发布文章列表
      */
-    public List<PostResponse> getPublishedPosts(Integer categoryId, Integer tagId, String keyword) {
+    public List<PostResponse> getPublishedPosts(Integer categoryId, Integer tagId) {
 
-        return postRepository.findPostCond(categoryId, tagId, keyword);
+        return postRepository.findPostCond(categoryId, tagId);
     }
 
     /**
@@ -340,5 +340,12 @@ public class BlogPostService {
             throw new BusinessException(401, "请先登录");
         }
         return postRepository.getFavoritedPosts(userId);
+    }
+
+    public List<PostResponse> searchPosts(String keyword) {
+        if (keyword == null ||keyword.isBlank()) {
+            throw new BusinessException(400,"搜索关键词不能为空");
+        }
+        return postRepository.searchPosts(keyword.trim());
     }
 }

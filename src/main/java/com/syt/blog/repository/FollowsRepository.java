@@ -1,6 +1,7 @@
 package com.syt.blog.repository;
 
 
+import com.syt.blog.DTO.Response.UserResponse;
 import com.syt.blog.jooq.tables.BlogFollows;
 import lombok.RequiredArgsConstructor;
 import org.jooq.DSLContext;
@@ -34,7 +35,16 @@ public class FollowsRepository {
                         .where(F.FOLLOWER_ID.eq(followerId).and(F.FOLLOWEE_ID.eq(followeeId))));
     }
 
-    public List<Integer> getFollow(Integer followerId) {
-        return dsl.select(F.FOLLOWEE_ID).from(F).where(F.FOLLOWER_ID.eq(followerId)).fetchInto(Integer.class);
+    public List<Long> getFollow(Integer followerId) {
+        return dsl.select(F.FOLLOWEE_ID).from(F).where(F.FOLLOWER_ID.eq(followerId)).fetchInto(Long.class);
+    }
+
+    /** 粉丝数：关注 followeeId 的用户数（blog_follows.followee_id 计数） */
+    public int countFollowers(Integer followeeId) {
+        return dsl.fetchCount(dsl.selectFrom(F).where(F.FOLLOWEE_ID.eq(followeeId)));
+    }
+
+    public List<Long> getFollowers(Integer followeeId) {
+        return dsl.select(F.FOLLOWER_ID).from(F).where(F.FOLLOWEE_ID.eq(followeeId)).fetchInto(Long.class);
     }
 }

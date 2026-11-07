@@ -209,9 +209,9 @@
                     <!-- 数据库连接信息 -->
                     <jdbc>
                         <driver>org.postgresql.Driver</driver>
-                        <url>jdbc:postgresql://localhost:5433/postgres</url>
-                        <user>postgres</user>
-                        <password>123456</password>
+                        <url>jdbc:postgresql://localhost:5435/blog</url>
+                        <user>blog</user>
+                        <password>blog123456</password>
                     </jdbc>
 
                     <!-- 代码生成器配置 -->

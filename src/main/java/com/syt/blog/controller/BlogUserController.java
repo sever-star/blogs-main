@@ -3,6 +3,7 @@ package com.syt.blog.controller;
 
 import com.syt.blog.DTO.Request.ChangePasswordRequest;
 import com.syt.blog.DTO.Response.LoginResponse;
+import com.syt.blog.DTO.Response.UserStatsResponse;
 import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.Result;
@@ -60,6 +61,15 @@ public class BlogUserController {
         return Result.success(userResponse);
     }
 
+    /**
+     * 获取用户的主页统计信息
+     * @param userId
+     * @return
+     */
+    @GetMapping("/{userId}")
+    public Result<UserStatsResponse> getUserStats(@PathVariable Integer userId) {
+        return Result.success(blogUserService.getUserStats(userId));
+    }
 
 
     /**

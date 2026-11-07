@@ -58,6 +58,18 @@ public class BlogFollowsController {
         return Result.success(result);
     }
 
+    /**
+     * 我的粉丝
+     * @param followeeId
+     * @return
+     */
+    @GetMapping("/fans")
+    public Result<List<UserResponse>> getFollowers(@RequestParam("followeeId") Integer followeeId) {
+        List<UserResponse> responses=blogFollowsService.getFollowers(followeeId);
+        return Result.success(responses);
+
+    }
+
 
 
 }

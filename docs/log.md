@@ -6,6 +6,51 @@
 
 ---
 
+## 2026-11-06 · 文章全文搜索报 `BadSqlGrammarException: 对于表"blog_post",丢失FROM子句项`
+
+### 现象
+
+调 `GET /api/posts/search?keyword=...` 触发 `PostRepository.searchPosts`，jOOQ 抛 `BadSqlGrammarException`，root cause 为 `PSQLException: 错误: 对于表"blog_post",丢失FROM子句项 位置：1163`。
+
+打印出的 SQL 里：WHERE 子句是 `blog_post.search_vector @@ websearch_to_tsquery(...)`（表名少了个 **s**），而 ORDER BY 里却是正确的 `ts_rank(blog_posts.search_vector, ...)`。FROM 子句是 `"public"."blog_posts"`，没有名为 `blog_post` 的表/别名，于是 PG 报丢失 FROM 子句项。
+
+### 定位过程
+
+**第 1 步：对照生成 SQL 找差异。** 同一方法内，WHERE 写成 `blog_post.search_vector`、ORDER BY 写成 `blog_posts.search_vector`——两者本应同源，说明 WHERE 那行的 plain-SQL 字符串里手写表名时誊漏了 `s`。
+
+**第 2 步：为什么会手写表名？** `search_vector` 是 tsvector **生成列**，未进 jOOQ 生成代码（`BlogPosts` 里没有 `SEARCH_VECTOR` 字段），所以不能用生成字段 `BLOG_POSTS.SEARCH_VECTOR`，只能写在 plain-SQL 片段里。于是 WHERE/rank/headline 四处都手写了 `blog_posts.search_vector`、`blog_posts.title`、`blog_posts.summary`。
+
+**第 3 步：为什么不能只把 `blog_post` 改回 `blog_posts` 了事？** 即便改对，plain-SQL 里手写 `表名.列名` 仍有两类隐患：① 誊写易错（本次就是）；② jOOQ 对「已知表 blog_posts + 未知列 search_vector」的 plain-SQL 解析行为不可控。根因是**把手写表名限定写进了 plain-SQL 片段**。
+
+### 根因
+
+plain-SQL 片段里手写 `blog_posts.search_vector`，誊写漏 `s` 成 `blog_post.search_vector`，PG 找不到该表别名报错。
+
+### 修复
+
+plain-SQL 片段里**不再手写任何 `表名.列名`**，全部用 `{0}` 占位符绑定 jOOQ `Field` 对象：
+
+- `search_vector`（未生成）：`DSL.field(DSL.unquotedName("search_vector"))` → 渲染为不带引号的裸列名 `search_vector`。FROM 中仅 `blog_posts` 有该列，PG 自动归属，无需表名限定。
+- `title` / `summary`：直接用生成字段 `BLOG_POSTS.TITLE` / `BLOG_POSTS.SUMMARY`，自带正确的 schema 限定。
+
+```java
+Field<Object> searchVector = DSL.field(DSL.unquotedName("search_vector"));
+Condition condition = DSL.condition("{0} @@ websearch_to_tsquery('zhprs', {1})", searchVector, keyword);
+Field<Double> rank = DSL.field("ts_rank({0}, websearch_to_tsquery('zhprs', {1}))", Double.class, searchVector, keyword);
+Field<String> titleHl = DSL.field("ts_headline('zhprs', {0}, websearch_to_tsquery('zhprs', {1}), '...')", String.class, BLOG_POSTS.TITLE, keyword);
+Field<String> summaryHl = DSL.field("ts_headline('zhprs', {0}, websearch_to_tsquery('zhprs', {1}), '...')", String.class, BLOG_POSTS.SUMMARY, keyword);
+```
+
+顺手修两处健壮性（与 `findMyPosts` 风格一致）：
+- `rows.isEmpty()` 早返回，避免 `postId` 为空时 `in (空列表)` 生成空 `IN()`；
+- `tags.get(row.getId())` → `getOrDefault(row.getId(), List.of())`，无标签文章不 NPE。
+
+### 验证
+
+`mvn -q compile` 通过（仅 Lombok/Unsafe 弃用警告，无编译错误）。
+
+---
+
 ## 2026-10-24 · AI 对话长时间空闲后提问报 500：`HttpMediaTypeNotAcceptableException` + `ResourceNotFoundException: 会话不存在或无权访问`
 
 ### 现象

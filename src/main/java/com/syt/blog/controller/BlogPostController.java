@@ -59,9 +59,8 @@ public class BlogPostController {
      */
     @GetMapping
     public Result<List<PostResponse>> getPublishedPosts(@RequestParam(required = false) Integer categoryId,
-                                                        @RequestParam(required = false) Integer tagId,
-                                                        @RequestParam(required = false) String keyword) {
-        List<PostResponse> posts = blogPostService.getPublishedPosts(categoryId, tagId, keyword);
+                                                        @RequestParam(required = false) Integer tagId) {
+        List<PostResponse> posts = blogPostService.getPublishedPosts(categoryId, tagId);
         return Result.success(posts);
     }
 
@@ -96,6 +95,11 @@ public class BlogPostController {
         return Result.success(blogPostService.getMyPosts());
     }
 
+    /**
+     * 浏览量前十
+     * @param limit
+     * @return
+     */
     @GetMapping("/top")
     public Result<List<PostResponse>> getTopPosts(@RequestParam(defaultValue = "10") Integer limit){
         List<PostResponse> postResponses = blogPostService.getTopPosts(limit);
@@ -169,11 +173,10 @@ public class BlogPostController {
     /**
      * 搜索文章
      */
-//    @GetMapping("/search")
-//    public Result<List<PostResponse>> searchPosts(@RequestParam String keyword) {
-//        List<BlogPost> posts = blogPostService.searchPosts(keyword);
-//        return Result.success(posts);
-//    }
+    @GetMapping("/search")
+    public Result<List<PostResponse>> searchPosts(@RequestParam String keyword) {
+        return Result.success(blogPostService.searchPosts(keyword));
+    }
 
     // ==================== 更新文章 ====================
 
