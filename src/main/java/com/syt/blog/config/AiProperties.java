@@ -43,4 +43,10 @@ public class AiProperties {
 
     /** 单次提问附件文本总字符上限，超出部分截断 */
     private int maxAttachmentChars = 20000;
+
+    /** 标签推荐最大返回条数（模型输出 id 列表后按此截断） */
+    private int maxSuggestTags = 5;
+
+    /** 标签推荐模型输出截断上限（字符），防止模型闲聊输出过长 */
+    private int maxSuggestOutputChars = 100;
 }

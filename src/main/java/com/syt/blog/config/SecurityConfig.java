@@ -94,6 +94,7 @@ public class SecurityConfig {
 
                         // ── 待审列表仅管理员可见，必须在下面 /api/posts/** permitAll 之前 ──
                         .requestMatchers(HttpMethod.GET, "/api/posts/pending").hasAuthority("ADMIN")
+                        .requestMatchers(HttpMethod.GET,"/api/posts/reviews/*/ai-aid").hasAuthority("ADMIN")
 
                         // ── 公开：内容只读。写方法的规则声明在其后，两者方法不同不会互相匹配 ──
                         .requestMatchers(HttpMethod.GET, "/api/posts", "/api/posts/**").permitAll()
@@ -102,9 +103,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/posts/*/comments").permitAll()
                         .requestMatchers(HttpMethod.GET,"/api/posts/top").permitAll()
 
-                        // ── 公开：AI 助手对游客开放，成本控制靠 AiRateLimiter 按 IP 限流 ──
-                        // 会话归属由 resolveOwner 决定：登录归用户，未登录按 IP
-                        .requestMatchers("/api/ai/**").permitAll()
+
 
                         // ── 需登录 ────────────────────────────────────────────────
                         .requestMatchers(HttpMethod.GET, "/api/auth/me").authenticated()
@@ -137,12 +136,21 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/notifications").authenticated()
                         .requestMatchers(HttpMethod.PUT, "/api/notifications/{id}/read").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/notifications/read-all").authenticated()
-
+                        //用户私信
                         .requestMatchers(HttpMethod.POST, "/api/follows/*").authenticated()
                         .requestMatchers(HttpMethod.DELETE, "/api/follows/*").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/follows/*/status").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/follows/mine").authenticated()
                         .requestMatchers(HttpMethod.GET, "/api/follows/fans").authenticated()
+                        //文章版本控制
+                        .requestMatchers(HttpMethod.GET, "/api/posts/*/revisions").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/posts/*/revisions/*").authenticated()
+                        .requestMatchers(HttpMethod.POST, "/api/posts/*/revisions/*/rollback").authenticated()
+
+                        .requestMatchers(HttpMethod.POST,"/api/ai/generate-title").authenticated()
+                        .requestMatchers(HttpMethod.POST,"/api/ai/generate-summary").authenticated()
+                        .requestMatchers(HttpMethod.POST,"/api/ai/suggest-tags").authenticated()
+                        .requestMatchers(HttpMethod.POST,"/api/ai/suggest-category").authenticated()
 
                         // ── 需博主/管理员 ──────────────────────────────────────────
                         // 用 hasAuthority 而非 hasRole：后者会自动加 ROLE_ 前缀，
@@ -162,11 +170,16 @@ public class SecurityConfig {
 
 
 
+
+
                         // 用户管理：GET 也拦——列表含邮箱等信息，不能放开给普通登录用户
                         .requestMatchers(HttpMethod.GET, "/api/users", "/api/users/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/users/**").hasAuthority("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/users/*/reset-password").hasAuthority("ADMIN")
 
+                        // ── 公开：AI 助手对游客开放，成本控制靠 AiRateLimiter 按 IP 限流 ──
+                        // 会话归属由 resolveOwner 决定：登录归用户，未登录按 IP
+                        .requestMatchers("/api/ai/**").permitAll()
                         // 兜底：没被上面任何一条覆盖的路径一律要登录
                         .anyRequest().authenticated()
                 )

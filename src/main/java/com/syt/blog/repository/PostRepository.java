@@ -596,4 +596,31 @@ public class PostRepository {
         rows.forEach(row->{row.setTags(tags.getOrDefault(row.getId(), List.of()));});
         return rows;
     }
+
+    public void updateReview(Integer postId, String output,Short status) {
+        dsl.update(BLOG_POSTS)
+                .set(BLOG_POSTS.AI_REVIEW_SUMMARY,output)
+                .set(BLOG_POSTS.AI_REVIEW_STATUS,status)
+                .where(BLOG_POSTS.ID.eq(postId)).execute();
+    }
+
+    /** 读取 AI 审核建议 JSON（可能为 null：未生成/失败时为空） */
+    public String getSummary(Long postId) {
+        return dsl.select(BLOG_POSTS.AI_REVIEW_SUMMARY).from(BLOG_POSTS)
+                .where(BLOG_POSTS.ID.eq(Math.toIntExact(postId))).fetchOneInto(String.class);
+    }
+
+    /** 读取 AI 审核状态：0=生成中 1=成功 2=未生成/失败；无记录返回 2 */
+    public Short getReviewStatus(Long postId) {
+        Short status = dsl.select(BLOG_POSTS.AI_REVIEW_STATUS).from(BLOG_POSTS)
+                .where(BLOG_POSTS.ID.eq(Math.toIntExact(postId))).fetchOneInto(Short.class);
+        return status == null ? (short) 2 : status;
+    }
+
+    /** 仅更新 AI 审核状态（失败/未配置时调用，不写 summary 避免脏 JSON） */
+    public void updateReviewStatus(Integer postId, Short status) {
+        dsl.update(BLOG_POSTS)
+                .set(BLOG_POSTS.AI_REVIEW_STATUS, status)
+                .where(BLOG_POSTS.ID.eq(postId)).execute();
+    }
 }

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.web.bind.annotation.RequestParam;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static com.syt.blog.jooq.Tables.BLOG_CATEGORIES;
 import static com.syt.blog.jooq.tables.BlogTags.BLOG_TAGS;
@@ -52,5 +53,17 @@ public class TagRepository {
         }
         record.update();
         return record.into(BlogTags.class);
+    }
+
+    public String getTags() {
+        return dsl.selectFrom(BLOG_TAGS).fetchInto(BlogTags.class).stream().map(e->e.getId()+"-"+e.getName()).collect(Collectors.joining(" "));
+    }
+
+    /** 按 id 集合批量查标签，用于 AI 推荐后把 id 还原成 id+name */
+    public List<BlogTags> findByIds(List<Integer> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return dsl.selectFrom(BLOG_TAGS).where(BLOG_TAGS.ID.in(ids)).fetchInto(BlogTags.class);
     }
 }

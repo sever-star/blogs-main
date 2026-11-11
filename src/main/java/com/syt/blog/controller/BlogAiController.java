@@ -6,6 +6,8 @@ import com.syt.blog.DTO.Request.AiSessionRequest;
 import com.syt.blog.DTO.Response.AiConfigResponse;
 import com.syt.blog.DTO.Response.AiMessageResponse;
 import com.syt.blog.DTO.Response.AiSessionResponse;
+import com.syt.blog.DTO.Response.CategoryResponse;
+import com.syt.blog.DTO.Response.TagResponse;
 import com.syt.blog.common.*;
 import com.syt.blog.service.AiChatService;
 import com.syt.blog.util.OssUtil;
@@ -25,7 +27,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+import tools.jackson.databind.ObjectMapper;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -135,6 +139,47 @@ public class BlogAiController {
                 body.getTitle(), body.getContentMd());
         return Result.success(Map.of("summary", summary));
     }
+
+    /**
+     * AI 推荐标签（非流式，需登录）。从站内已有标签中选，不新建标签。
+     * 返回 id+name 列表；无匹配/解析失败返回空列表。
+     * 调用记入 blog_ai_usage（type=tag_suggest，ref_id 为空）。
+     */
+    @PostMapping("/suggest-tags")
+    public Result<Map<String, List<TagResponse>>> suggestTags(@Valid @RequestBody AiGenerateRequest body,
+                                                              HttpServletRequest request) {
+        AiChatService.Owner owner = resolveOwner(request);
+        if (owner.userId() == null) {
+            throw new BusinessException(401, "请先登录后使用 AI 生成");
+        }
+        List<TagResponse> tags = aiChatService.suggestTags(owner.userId(), owner.ip(),
+                body.getTitle(), body.getContentMd());
+        return Result.success(Map.of("tags", tags));
+    }
+
+    /**
+     * AI 推荐分类（非流式，需登录）。从站内现有分类中选，模型只输出一个 id。
+     * data 为 {categoryId, categoryName}；解析失败/分类不存在时 categoryId 为 null，
+     * 前端让用户自选。调用记入 blog_ai_usage（type=category_suggest，ref_id 为空）。
+     */
+    @PostMapping("/suggest-category")
+    public Result<Map<String, Object>> suggestCategory(@Valid @RequestBody AiGenerateRequest body,
+                                                       HttpServletRequest request) {
+        AiChatService.Owner owner = resolveOwner(request);
+        if (owner.userId() == null) {
+            throw new BusinessException(401, "请先登录后使用 AI 生成");
+        }
+        CategoryResponse category = aiChatService.suggestCategory(owner.userId(), owner.ip(),
+                body.getTitle(), body.getContentMd());
+        // 解析失败时 category 为 null，需把 categoryId/categoryName 设为可空值，
+        // 故用 HashMap（Map.of 不接受 null value，直接写会 NPE）
+        Map<String, Object> data = new HashMap<>();
+        data.put("categoryId", category == null ? null : category.getId());
+        data.put("categoryName", category == null ? null : category.getName());
+        return Result.success(data);
+    }
+
+
 
     /** 上传二进制附件（图片等）到 OSS，返回公开地址 */
     @PostMapping("/upload")

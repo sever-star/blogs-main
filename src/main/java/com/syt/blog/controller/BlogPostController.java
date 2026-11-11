@@ -3,13 +3,16 @@ package com.syt.blog.controller;
 import com.syt.blog.DTO.Request.PostRequest;
 import com.syt.blog.DTO.Response.BlogPostDetailResponse;
 import com.syt.blog.DTO.Response.PostResponse;
+import com.syt.blog.DTO.Response.PostRevisionResponse;
 import com.syt.blog.common.PageResult;
 import com.syt.blog.common.Result;
 
 import com.syt.blog.service.BlogPostService;
+import com.syt.blog.service.PostRevisionService;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import tools.jackson.databind.ObjectMapper;
 
 import java.util.HashMap;
 import java.util.List;
@@ -25,11 +28,13 @@ import java.util.Map;
 public class BlogPostController {
 
     private final BlogPostService blogPostService;
+    private final PostRevisionService PostRevisionService;
 //    private final PostMapper postMapper;
 
-    public BlogPostController(BlogPostService blogPostService) {
+    public BlogPostController(BlogPostService blogPostService, PostRevisionService PostRevisionService) {
         this.blogPostService = blogPostService;
 //        this.postMapper = postMapper;
+        this.PostRevisionService = PostRevisionService;
     }
 
     // ==================== 新增文章 ====================
@@ -114,6 +119,27 @@ public class BlogPostController {
         blogPostService.approvePost(id);
         return Result.success();
     }
+    /**
+     *
+     * @param postId
+     * @return
+     */
+    @GetMapping("/reviews/{postId}/ai-aid")
+    public Result<Map<String,Object>> getAiAid(@PathVariable Long postId) {
+        // status 单独读列，不能从 summary 是否为空推断（生成中/失败都可能是空）
+        Short status = blogPostService.getReviewStatus(postId);
+        String aid = blogPostService.getSummaryAid(postId);
+        ObjectMapper objectMapper = new ObjectMapper();
+        Map<String,Object> data = new HashMap<>();
+        data.put("status", status == null ? 2 : status.intValue());
+        // summary 有值才解析合并；为空保留 status（分析中/不可用由前端按 status 判断）
+        if (aid != null && !aid.isEmpty()) {
+            // 脏数据兜底：解析失败只返回 status，不让接口 500
+            Map<String,Object> parsed = objectMapper.readValue(aid, Map.class);
+            if (parsed != null) data.putAll(parsed);
+        }
+        return Result.success(data);
+    }
 
     /**
      * 拒绝文章
@@ -124,6 +150,11 @@ public class BlogPostController {
         return Result.success();
     }
 
+    /**
+     * 下架文章
+     * @param id
+     * @return
+     */
     @PutMapping("/{id}/offline")
     public Result offlinePost(@PathVariable Integer id) {
         blogPostService.offlinePost(id);
@@ -185,9 +216,45 @@ public class BlogPostController {
      */
     @PutMapping("/{id}")
     public Result<PostResponse> updatePost(@PathVariable Integer id,
-                                           @RequestBody @Valid PostRequest postRequest) {
-        PostResponse updated = blogPostService.updatePost(id, postRequest);
+                                           @RequestBody @Valid PostRequest postRequest, HttpServletRequest request) {
+        PostResponse updated = blogPostService.updatePost(id, postRequest,request);
         return Result.success(updated);
+    }
+    //==================== 版本控制 ====================
+
+    /**
+     * 获取文章所有版本
+     * @param id
+     * @return
+     */
+    @GetMapping("/{id}/revisions")
+    public Result<List<PostRevisionResponse>> getPostRevisions(@PathVariable Long id) {
+        return Result.success(PostRevisionService.getRevision(id));
+    }
+
+    /**
+     * 获取文章指定版本
+     * @param id
+     * @return
+     */
+    @GetMapping("/{id}/revisions/{revId}")
+    public Result<PostRevisionResponse> getPostRevision(@PathVariable Long id,
+                                                              @PathVariable Long revId) {
+        return Result.success(PostRevisionService.findRevision(id, revId));
+    }
+
+
+    /**
+     * 回滚文章指定版本
+     * @param id
+     * @param revId
+     * @return
+     */
+    @PostMapping("/{id}/revisions/{revId}/rollback")
+    public Result<PostResponse> rollbackPost(@PathVariable Long id,
+                                              @PathVariable Long revId) {
+        PostResponse response = PostRevisionService.rollbackPost(id, revId);
+        return Result.success(response);
     }
 
     // ==================== 删除文章 ====================

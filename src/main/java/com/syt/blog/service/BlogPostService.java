@@ -9,6 +9,7 @@ import com.syt.blog.DTO.Response.BlogPostDetailResponse;
 import com.syt.blog.DTO.Response.PostResponse;
 import com.syt.blog.jooq.tables.records.BlogPostsRecord;
 import com.syt.blog.repository.PostRepository;
+import com.syt.blog.repository.PostRevisionRepository;
 import com.syt.blog.util.SecurityUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -27,13 +28,16 @@ public class BlogPostService {
     private final ViewCountService viewCountService;
     private final PostRepository postRepository;
     private final NotificationService notificationService;
-    public final ScheduledPostDispatcher scheduledPostDispatcher;
-
-    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, NotificationService notificationService, ScheduledPostDispatcher scheduledPostDispatcher) {
+    private final ScheduledPostDispatcher scheduledPostDispatcher;
+    private final PostRevisionRepository postRevisionRepository;
+    private final AiChatService aiChatService;
+    public BlogPostService(ViewCountService viewCountService, PostRepository postRepository, NotificationService notificationService, ScheduledPostDispatcher scheduledPostDispatcher, PostRevisionRepository postRevisionRepository, AiChatService aiChatService) {
         this.viewCountService = viewCountService;
         this.postRepository = postRepository;
         this.notificationService = notificationService;
         this.scheduledPostDispatcher = scheduledPostDispatcher;
+        this.postRevisionRepository = postRevisionRepository;
+        this.aiChatService = aiChatService;
     }
 
     private static final int STATUS_PUBLISHED = 1;
@@ -85,9 +89,9 @@ public class BlogPostService {
         Integer currentUserId = SecurityUtils.currentUserId();
 
         LocalDateTime at = blogPostsRecord.getScheduledAt();
-        short status=0;
+        short status=STATUS_PUBLISHED;
         if(at!=null){
-            status=STATUS_PUBLISHED;
+            status=0;
         }
         postRepository.updateReview(id, currentUserId, status, (short) STATUS_PUBLISHED, LocalDateTime.now());
         if(at!=null){
@@ -232,17 +236,20 @@ public class BlogPostService {
      * 更新文章
      */
     @Transactional
-    public PostResponse updatePost(Integer id, PostRequest postRequest) {
+    public PostResponse updatePost(Integer id, PostRequest postRequest, HttpServletRequest request) {
         PostResponse existing = getPostById(id,null);
         if (existing == null) {
             throw new ResourceNotFoundException("文章不存在");
         }
+
         // 权限校验：仅文章作者可编辑（与 API 文档 403 约定一致）。
         // SecurityConfig 只保证「登录可进」，改别人的稿（含管理员改他人稿）仍会被下面这行挡掉。
         Integer currentUserId = SecurityUtils.currentUserId();
+
         if (existing.getUserId() == null || !existing.getUserId().equals(currentUserId)) {
             throw new BusinessException(403, "只有文章作者可以编辑");
         }
+
         if (postRequest.getTitle() != null) {
             existing.setTitle(postRequest.getTitle());
         }
@@ -258,6 +265,8 @@ public class BlogPostService {
         if (postRequest.getCoverImage() != null) {
             existing.setCoverImage(postRequest.getCoverImage());
         }
+        //更新后在存入版本库
+        postRevisionRepository.snapshotIfChanged(existing,currentUserId);
         // scheduledAt 用 always-set 语义（不同于上面字段的 if-non-null）：
         // 前端每次提交都显式携带（时间或 null），null 表示取消已有定时，
         // 否则用户关闭「定时发布」开关后旧时间仍残留，审核通过会按旧时间误发。
@@ -270,7 +279,11 @@ public class BlogPostService {
             existing.setStatus((short) 2);
         }
         postRepository.save(id, existing, postRequest);
+        //
         scheduledPostDispatcher.cancel(id);
+
+        postRepository.updateReview(id,null,(short)0);
+        aiChatService.getAiAid((long) id,request);
         return getPostById(id,null);
     }
 
@@ -347,5 +360,14 @@ public class BlogPostService {
             throw new BusinessException(400,"搜索关键词不能为空");
         }
         return postRepository.searchPosts(keyword.trim());
+    }
+
+    public String getSummaryAid(Long postId) {
+        return postRepository.getSummary(postId);
+    }
+
+    /** 读取文章 AI 审核状态（0 生成中 / 1 成功 / 2 未生成或失败） */
+    public Short getReviewStatus(Long postId) {
+        return postRepository.getReviewStatus(postId);
     }
 }

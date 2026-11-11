@@ -8,6 +8,8 @@ import org.jooq.SelectConditionStep;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static com.syt.blog.jooq.Tables.BLOG_CATEGORIES;
 
@@ -48,5 +50,17 @@ public class CategoryRepository {
         }
         record.update();
         return record.into(BlogCategories.class);
+    }
+
+    public String getCategories() {
+        return dsl.selectFrom(BLOG_CATEGORIES).fetchInto(BlogCategories.class).stream().map(e->e.getId()+"-"+e.getName()).collect(Collectors.joining(" "));
+    }
+
+    /** 按 id 批量查分类，用于 AI 推荐后把 id 还原成 id+name */
+    public List<BlogCategories> findByIds(List<Integer> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return dsl.selectFrom(BLOG_CATEGORIES).where(BLOG_CATEGORIES.ID.in(ids)).fetchInto(BlogCategories.class);
     }
 }

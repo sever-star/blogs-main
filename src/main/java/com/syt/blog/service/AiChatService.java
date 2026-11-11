@@ -1,18 +1,31 @@
 package com.syt.blog.service;
 
 import com.syt.blog.DTO.Mapper.AiMapper;
+import com.syt.blog.DTO.Mapper.CategoryMapper;
+import com.syt.blog.DTO.Mapper.TagMapper;
 import com.syt.blog.DTO.Request.AiChatRequest;
 import com.syt.blog.DTO.Response.AiConfigResponse;
 import com.syt.blog.DTO.Response.AiMessageResponse;
 import com.syt.blog.DTO.Response.AiSessionResponse;
+import com.syt.blog.DTO.Response.CategoryResponse;
+import com.syt.blog.DTO.Response.TagResponse;
 import com.syt.blog.common.BusinessException;
 import com.syt.blog.common.ErrorCode;
 import com.syt.blog.common.ResourceNotFoundException;
 import com.syt.blog.config.AiProperties;
 import com.syt.blog.jooq.tables.pojos.BlogAiMessages;
 import com.syt.blog.jooq.tables.pojos.BlogAiSessions;
+import com.syt.blog.jooq.tables.pojos.BlogCategories;
+import com.syt.blog.jooq.tables.pojos.BlogTags;
+import com.syt.blog.jooq.tables.records.BlogPostsRecord;
 import com.syt.blog.repository.AiRepository;
+import com.syt.blog.repository.CategoryRepository;
+import com.syt.blog.repository.PostRepository;
+import com.syt.blog.repository.TagRepository;
+import com.syt.blog.util.SecurityUtils;
 import jakarta.annotation.PreDestroy;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.constraints.NotBlank;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.jooq.Condition;
@@ -24,10 +37,14 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 import static com.syt.blog.jooq.tables.BlogAiSessions.BLOG_AI_SESSIONS;
 
@@ -45,6 +62,9 @@ import static com.syt.blog.jooq.tables.BlogAiSessions.BLOG_AI_SESSIONS;
 @Service
 @RequiredArgsConstructor
 public class AiChatService {
+    private final CategoryRepository categoryRepository;
+    private final TagRepository tagRepository;
+    private final PostRepository postRepository;
 
     /** 系统提示词：约束 AI 的角色、语言与输出格式 */
     private static final String SYSTEM_PROMPT = """
@@ -56,7 +76,42 @@ public class AiChatService {
             4. 不确定的内容要明确说明，不要编造事实、链接或引用；
             5. 若用户提供了附件，优先依据附件内容作答，并指明依据的是哪个文件。
             """;
-
+    private static final String REVIEW_SYSTEM_PROMPT = """
+            你是文章内容审核助手，为人工审核员提供客观的 AI 预检参考，辅助判断文章是否可以发布。你只做提示和打分，最终是否发布由人工审核员决定。
+            
+            阅读文章，从以下维度评估并以 JSON 输出（不要输出 JSON 以外的内容）：
+            {
+              "compliance_score": 0-100,        
+              "sensitive_words": ["词1","词2"],
+              "quality_score": 0-100,
+              "plagiarism_hint": "",
+              "summary": "", 
+              "suggestion": "pass|reject|manual"
+            }
+            
+            取值规则：
+            
+            compliance_score：0-100 整数，越高越合规，最低给 5。
+            - 涉政、涉黄、暴力、赌博、诈骗、广告导流（联系方式/二维码/外链）、谣言、人身攻击等任一明显违规 → ≤40
+            - 仅有轻微语气或表述风险、删改后可发布 → 41-69
+            - 合规无风险 → 70-100
+            
+            sensitive_words：只收录原文原词，不收录编程术语与技术名词；谐音、拆字等变体按原文写法收录；去重；无命中必须给 []，不得编造原文没有的词。
+            
+            quality_score：0-100 整数，考量结构完整、逻辑清晰、信息真实、无大段 AI 味空话；与合规分和敏感词相互独立，不因审出敏感词而压低。
+            
+            plagiarism_hint：你无法联网查重，仅基于文本痕迹判断（大段照搬常见教程、AI 生成痕迹过重、前后语气矛盾），不得指认具体抄袭来源；无法判断给 ""，不要猜测。
+            
+            summary：一句话中文总结文章主题与整体观感，不超过 50 字。
+            
+            suggestion：三选一——"pass"/"reject"/"manual"，且必须与打分一致：
+            - compliance_score ≤40 或 quality_score <40 → "reject"
+            - 41≤compliance_score<70，或 40≤quality_score<70，或 plagiarism_hint 非空 → "manual"
+            - 其余 → "pass"
+            - 打分与 suggestion 不得矛盾；拿不准时优先 "manual"，不要替审核员下结论。
+            
+            兜底：文章为空、过短或无法评估时，给 compliance_score=50、quality_score=50、suggestion="manual"，并在 summary 中说明原因。
+            """;
     /** 会话标题最大长度（表字段 varchar(150)，这里取更适合列表展示的长度） */
     private static final int TITLE_MAX_LENGTH = 30;
 
@@ -78,6 +133,9 @@ public class AiChatService {
     private static final String USAGE_REF_TYPE = "post";
     private static final String USAGE_TYPE_TITLE = "title";
     private static final String USAGE_TYPE_SUMMARY = "summary";
+    private static final String USAGE_TYPE_TAG = "tag_suggest";
+    private static final String USAGE_TYPE_CATEGORY = "category_suggest";
+    private static final String USAGE_TYPE_REVIEW = "review_assist";
     /** 标题最大长度（截断模型输出，避免超出表字段 varchar(200)） */
     private static final int TITLE_MAX_OUTPUT_CHARS = 50;
     /** 摘要最大长度（截断模型输出） */
@@ -91,7 +149,21 @@ public class AiChatService {
             你是文章摘要生成器。阅读正文，用一句话概括文章主旨，不超过 80 字。
             只输出摘要文本，不要前缀、不要任何解释。
             """;
-
+    /**
+     * 标签推荐模板：%s 处由后端拼入站内全部标签（id-name），模型只输出数字 id，
+     * 多个 id 用逗号分隔。与分类同构（受控集合：只从存量中选，不自由生成新词）。
+     */
+    private static final String TAG_SYSTEM_PROMPT = """
+            你是文章标签助手。可选标签如下：
+            %s
+            阅读标题与正文，选出最匹配的 1-2 个标签，只输出其数字 id，用逗号分隔，不要任何解释。
+            """;
+    /** 分类推荐模板：%s 处拼入站内全部分类（id-name），模型只输出一个数字 id */
+    private static final String CATEGORY_SYSTEM_PROMPT = """
+            你是博客分类助手。可选分类如下：
+            %s
+            阅读标题与正文，选出最匹配的一个分类，只输出其数字 id，不要任何解释。
+            """;
     private final AiRepository aiRepository;
     private final LlmClient llmClient;
     private final AiRateLimiter rateLimiter;
@@ -107,6 +179,7 @@ public class AiChatService {
     void shutdown() {
         streamExecutor.shutdown();
     }
+
 
     // ==================== 会话归属 ====================
 
@@ -385,6 +458,144 @@ public class AiChatService {
     }
 
     /**
+     * AI 推荐标签（受控集合）：把站内全部标签拼入 prompt，模型只输出数字 id（逗号分隔），
+     * 后端解析 id → 校验存在 → 返回 id+name。只从存量中选择，不自由生成新词，
+     * 因此不会产生「近似新标签」导致标签表膨胀。返回空列表表示无匹配或解析失败。
+     */
+    public List<TagResponse> suggestTags(Integer userId, String ip, String title, String contentMd) {
+        String input = truncate(contentMd, MAX_INPUT_CHARS);
+        String options = tagRepository.getTags();
+        if (options.isBlank()) {
+            return List.of();
+        }
+        String system = TAG_SYSTEM_PROMPT.formatted(options);
+        StringBuilder builder = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+           builder.append("标题：").append(title).append("\n\n");
+        }
+        builder.append("正文：").append(input);
+        input=builder.toString();
+        List<LlmClient.ChatMessage> messages = List.of(
+                LlmClient.ChatMessage.system(system),
+                LlmClient.ChatMessage.user(input));
+        String output = runAndRecord(USAGE_TYPE_TAG, userId, ip, input, messages, properties.getMaxSuggestOutputChars());
+        return resolveTags(output);
+    }
+
+    /**
+     * AI 推荐分类（受控集合）：把站内全部分类拼入 prompt，模型只输出一个数字 id，
+     * 后端解析并校验存在。解析失败/越界/不存在 → 返回 null（前端让用户自选）。
+     */
+    public CategoryResponse suggestCategory(Integer userId, String ip, String title, String contentMd) {
+        String input = truncate(contentMd, MAX_INPUT_CHARS);
+        String options = categoryRepository.getCategories();
+        if (options.isBlank()) {
+            return null;
+        }
+        String system = CATEGORY_SYSTEM_PROMPT.formatted(options);
+        StringBuilder builder = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+            builder.append("标题：").append(title).append("\n\n");
+        }
+        builder.append("正文：").append(input);
+        input=builder.toString();
+        List<LlmClient.ChatMessage> messages = List.of(
+                LlmClient.ChatMessage.system(system),
+                LlmClient.ChatMessage.user(input));
+        String output = runAndRecord(USAGE_TYPE_CATEGORY, userId, ip, input, messages, 50);
+        Integer categoryId = parseInt(output);
+        if (categoryId == null) {
+            return null;
+        }
+        List<BlogCategories> match = categoryRepository.findByIds(List.of(categoryId));
+        if (match.isEmpty()) {
+            return null;
+        }
+        return CategoryMapper.INSTANCE.blogCategoriesToCategoryResponse(match.get(0));
+    }
+
+    /**
+     * 对文章进行审核
+     * @param postId
+     * @return
+     */
+    public void getAiAid(Long postId, HttpServletRequest request) {
+        Integer userId = SecurityUtils.currentUserId();
+        String ip = request.getRemoteAddr();
+        BlogPostsRecord post = postRepository.getPostById(Math.toIntExact(postId));
+        generateAsync(userId, ip, Math.toIntExact(postId), post.getTitle(), post.getContentMd());
+    }
+
+    private void generateAsync(Integer userId, String ip, Integer postId, String title, String contentMd)  {
+        final ExecutorService reviewExecutor = Executors.newVirtualThreadPerTaskExecutor();
+        reviewExecutor.execute(() -> doGenerate(userId, ip, postId, title, contentMd));
+        reviewExecutor.shutdown();
+    }
+    private void doGenerate(Integer userId, String ip, Integer postId, String title, String contentMd) {
+            StringBuilder builder = new StringBuilder();
+            if (title != null && !title.isBlank()) {
+                builder.append("标题：").append(title).append("\n\n");
+            }
+            builder.append("正文：").append(contentMd);
+            String input = builder.toString();
+            List<LlmClient.ChatMessage> messages = List.of(
+                    LlmClient.ChatMessage.system(REVIEW_SYSTEM_PROMPT),
+                    LlmClient.ChatMessage.user(input));
+            try {
+                String output = runAndRecord(USAGE_TYPE_REVIEW,userId,ip,input,messages,2000);
+                postRepository.updateReview(postId,output,(short)1);
+            }catch (Exception e){
+                postRepository.updateReview(postId,null,(short)2);
+                log.error("审核文章失败",e);
+            }
+
+    }
+
+    /** 解析模型输出的多个 id（逗号分隔，含中文逗号）：trim → 去重 → 转为 Integer，非数字跳过 */
+    private List<TagResponse> resolveTags(String output) {
+        if (output == null || output.isBlank()) {
+            return List.of();
+        }
+        Set<Integer> ids = new LinkedHashSet<>();
+        for (String part : output.split("[,，]")) {
+            String trimmed = part.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            Integer id = parseInt(trimmed);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        List<BlogTags> tags = tagRepository.findByIds(new ArrayList<>(ids));
+        Map<Integer, BlogTags> byId = tags.stream()
+                .collect(Collectors.toMap(BlogTags::getId, t -> t, (a, b) -> a));
+        List<TagResponse> result = new ArrayList<>();
+        for (Integer id : ids) {
+            BlogTags tag = byId.get(id);
+            if (tag != null) {
+                result.add(TagMapper.INSTANCE.blogTagsToTagResponse(tag));
+                if (result.size() >= properties.getMaxSuggestTags()) {
+                    break;
+                }
+            }
+        }
+        return result;
+    }
+
+    /** 解析单个 id，非数字/越界/为空返回 null */
+    private Integer parseInt(String s) {
+        try {
+            return Integer.valueOf(s.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    /**
      * 通用：调一次非流式补全并把调用记进 blog_ai_usage。
      * <p>
      * 成功 → 记 status=1（含 output/tokens）并返回截断后的输出；
@@ -420,6 +631,7 @@ public class AiChatService {
 
     /** 截断字符串到最大长度，null 视为空串 */
     private static String truncate(String s, int max) {
+
         if (s == null) {
             return "";
         }
@@ -458,3 +670,5 @@ public class AiChatService {
     private static final class ClientGoneException extends RuntimeException {
     }
 }
+
+
